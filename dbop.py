@@ -696,20 +696,11 @@ def insert_transaction(trans_date, amount_of_money, total_points, for_cust_id, p
     '''Insert a transaction into the database. for_cust_id can be None for anonymous purchases.
     for_station_id is required and links the transaction to the station.'''
     with _connect() as conn:
-        cursor = conn.cursor()
-        # Ensure proper types
-        trans_date = float(trans_date) if trans_date else 0.0
-        amount_of_money = float(amount_of_money) if amount_of_money else 0.0
-        total_points = int(total_points) if total_points is not None else 0
-        payment_method = str(payment_method) if payment_method else "Unknown"
-        for_station_id = int(for_station_id) if for_station_id else 0
-        
-        cursor.execute(
-            "INSERT INTO `TRANSACTION` (trans_date, amount_of_money, total_points, for_cust_id, payment_method, for_station_id) VALUES (?, ?, ?, ?, ?, ?)",
-            (trans_date, amount_of_money, total_points, for_cust_id, payment_method, for_station_id)
-        )
+        cursor = conn.cursor()   
+        cursor.execute("INSERT INTO `TRANSACTION` (trans_date, amount_of_money, total_points, for_cust_id, payment_method, for_station_id) VALUES (?, ?, ?, ?, ?, ?)",
+            (trans_date, amount_of_money, total_points, for_cust_id, payment_method, for_station_id))
         conn.commit()
-        return cursor.lastrowid
+        return cursor.lastrowid # inserting transaction, return its id
 
 def get_all_transactions():
     '''Retrieve all transactions from the database with station and customer information'''
@@ -782,10 +773,7 @@ def update_customer_points(customer_id, points_to_add):
     with _connect() as conn:
         cursor = conn.cursor()
         try:
-            cursor.execute(
-                "UPDATE `POINT_SYSTEM` SET points = points + ? WHERE customer_id = ?",
-                (points_to_add, customer_id)
-            )
+            cursor.execute("UPDATE `POINT_SYSTEM` SET points = points + ? WHERE customer_id = ?",(points_to_add, customer_id))
             conn.commit()
             return True
         except Exception as e:
@@ -865,44 +853,29 @@ def get_customer_by_card_number(card_number):
             }
         return None
 
-def deduct_fuel_from_tank(station_id, fuel_id, liters_purchased):
-    '''Deduct purchased liters from an available tank for the given fuel at the station.
-    Selects a tank with active pump and quantity above min_fuel_quantity.'''
+def deduct_fuel_from_tank(tank_id, liters_purchased):
+    '''Deduct purchased liters from the specified tank.'''
+    if liters_purchased is None or liters_purchased < 0:
+        return False
+
     with _connect() as conn:
         cursor = conn.cursor()
-        
-        # Get all tanks for this fuel at this station
-        cursor.execute(
-            "SELECT tank_id, current_quantity, min_fuel_quantity FROM TANK WHERE for_station_id = ? AND for_fuel_id = ?",
-            (station_id, fuel_id)
-        )
-        tanks = cursor.fetchall()
-        
-        # Find a suitable tank (active pump + quantity > min)
-        for tank in tanks:
-            tank_id, current_qty, min_qty = tank[0], tank[1], tank[2]
-            
-            # Check if this tank has an active pump
-            cursor.execute(
-                "SELECT is_active FROM PUMP WHERE for_tank_id = ?",
-                (tank_id,)
-            )
-            pump_rows = cursor.fetchall()
-            has_active_pump = any(p[0] in (True, 1, "1") for p in pump_rows)
-            
-            # Check if quantity is above minimum
-            if has_active_pump and current_qty > (min_qty or 0):
-                # Deduct fuel from this tank
-                new_quantity = round(max(0, current_qty - liters_purchased), 2)
-                cursor.execute(
-                    "UPDATE TANK SET current_quantity = ? WHERE tank_id = ?",
-                    (new_quantity, tank_id)
-                )
-                conn.commit()
-                return True
-        
-        # No suitable tank found
-        return False
+        cursor.execute("SELECT current_quantity, min_fuel_quantity FROM TANK WHERE tank_id = ?",(tank_id,))
+        row = cursor.fetchone()
+        if not row:
+            return False
+
+        current_qty, min_qty = row
+        min_qty = min_qty or 0
+
+        # Ensure there is enough fuel to stay above the minimum threshold
+        if current_qty - liters_purchased < min_qty:
+            return False
+
+        new_quantity = round(current_qty - liters_purchased, 2)
+        cursor.execute("UPDATE TANK SET current_quantity = ? WHERE tank_id = ?",(new_quantity, tank_id))
+        conn.commit()
+        return True
 
 def get_customer_details(customer_id):
     '''Get detailed customer information including points data'''
@@ -942,13 +915,10 @@ def redeem_points(customer_id, points_to_redeem):
     with _connect() as conn:
         cursor = conn.cursor()
         # Calculate euros from points (250 points = 1 euro)
-        euros_discount = points_to_redeem / 250.0
+        euros_discount = points_to_redeem // 250.0 # floored
         
         # Update POINT_SYSTEM to subtract redeemed points
-        cursor.execute(
-            "UPDATE POINT_SYSTEM SET points = points - ? WHERE customer_id = ?",
-            (points_to_redeem, customer_id)
-        )
+        cursor.execute("UPDATE POINT_SYSTEM SET points = points - ? WHERE customer_id = ?",(points_to_redeem, customer_id))
         conn.commit()
         
         return euros_discount

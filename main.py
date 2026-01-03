@@ -1,5 +1,6 @@
 import customtkinter as ctk
 import dbop
+import entities
 import datetime
 import random
 from PIL import Image
@@ -39,12 +40,14 @@ class AppGUI(ctk.CTk):
         # Initialize station and fuel variables
         self.current_customer_station = None
         self.current_admin_station = None
-        self.customer_tank_capacity_to_fill = 0
+        self.customer_tank_capacity = 0
         self.selected_fuel = None
+        self.selected_pump_id = None
+        self.selected_tank_id = None
         self.automated_amount_total = 0.0
 
         # Initialize fill mode variables
-        self.fill_liters = 0.0
+        self.customer_tank_capacity = 0.0
         self.fill_total_cost = 0.0
         self.fill_points = 0
 
@@ -159,7 +162,6 @@ class AppGUI(ctk.CTk):
 
     #MAIN FRAME
     def _build_main_frame(self):
-        '''Admin/Customer Selection Frame'''
         title = ctk.CTkLabel(self.main_frame, text=APP_TITLE, font=ctk.CTkFont(size=20, weight="bold"))
         title.grid(row=0, column=0, columnspan=2, pady=(20, 10)) #pady=(upper, lower) / padx=(left, right)
 
@@ -211,7 +213,7 @@ class AppGUI(ctk.CTk):
         #buttons
         btn_back = ctk.CTkButton(self.customer_frame, text="Back", command=lambda: self.btn_back_func(self.main_frame))
         btn_back.grid(row=1, column=1, padx=20, pady=20, sticky="se")
-        btn_gas = ctk.CTkButton(self.customer_frame, text="Select Station", command=lambda: self.show_frame(self.customer_all_stations_frame)) # builded in _build_customer_all_stations_frame
+        btn_gas = ctk.CTkButton(self.customer_frame, text="Select Station", command=lambda: self.btn_show_stations_func(self.customer_all_stations_frame))
         btn_gas.grid(row=0, column=0, padx=20, pady=20, sticky="we")
 
 
@@ -248,7 +250,7 @@ class AppGUI(ctk.CTk):
 
     #ALL STATIONS WHEN CUSTOMER ENTERS FRAME
     def _build_customer_all_stations_frame(self):
-        '''Station option Frame for customer'''
+        '''Station option Frame'''
         
         self.customer_all_stations_frame.grid_rowconfigure(0, weight=1) 
         self.customer_all_stations_frame.grid_columnconfigure(0, weight=1)       
@@ -281,7 +283,7 @@ class AppGUI(ctk.CTk):
 
     #SELECTED STATION WHEN ADMIN ENTERS
     def _build_admin_station_frame(self, station_id): 
-        '''Station Frame where admin can see all info about the selected station'''
+        '''Station Frame'''
         # Clear previous widgets so that we don't have any leftovers when we enter a new station
         for widget in self.admin_station_frame.winfo_children():
             widget.destroy()
@@ -337,7 +339,7 @@ class AppGUI(ctk.CTk):
 
     #SELECTED STATION WHEN CUSTOMER ENTERS
     def _build_customer_station_frame(self): 
-        '''Station Frame where customer can choose to Fill-up or Go to Store'''
+        '''Station Frame'''
         # Clear previous widgets 
         for widget in self.customer_station_frame.winfo_children():
             widget.destroy()
@@ -370,7 +372,7 @@ class AppGUI(ctk.CTk):
     
     #FUEL PURCHASE FRAME FOR NON-AUTOMATED STATIONS
     def _build_fuel_purchase_frame(self):
-        '''Fuel Purchase Frame for NON-AUTOMATED stations only (supports liters/euros/fill modes)'''
+        '''Fuel Purchase Frame for non automated stations only (supports liters/euros modes)'''
         for widget in self.fuel_purchase_frame.winfo_children():
             widget.destroy()
 
@@ -400,8 +402,9 @@ class AppGUI(ctk.CTk):
 
         current_row = 3
 
+        # computed values for each case (liters,euros)
         # Total amount (show in liters mode, hide in euros mode)
-        if mode != 'euros':
+        if mode == 'liters':
             total_label = ctk.CTkLabel(self.fuel_purchase_frame, text="Total amount:")
             total_label.grid(row=current_row, column=0, padx=20, pady=10, sticky="e")
 
@@ -427,13 +430,13 @@ class AppGUI(ctk.CTk):
         
         points_row = current_row
 
-        # Input widget based on mode
+        # Input widgets based on mode, placed in the middle of the frame
         if mode == 'liters':  # user types liters, we compute euros
             self.qty_entry = ctk.CTkEntry(self.fuel_purchase_frame)
             self.qty_entry.grid(row=2, column=1, padx=20, pady=10, sticky="w")
             self.qty_entry.insert(0, "10")
-            self.qty_entry.bind("<KeyRelease>", lambda e: self.update_total_from_entry())
-            self.update_total_from_entry()
+            self.qty_entry.bind("<KeyRelease>", lambda e: self.update_from_liters_entry())
+            self.update_from_liters_entry()
         elif mode == 'euros':  # user types euros, we compute liters
             self.amount_entry = ctk.CTkEntry(self.fuel_purchase_frame)
             self.amount_entry.grid(row=2, column=1, padx=20, pady=10, sticky="w")
@@ -444,11 +447,12 @@ class AppGUI(ctk.CTk):
             self.qty_entry = ctk.CTkEntry(self.fuel_purchase_frame)
             self.qty_entry.grid(row=2, column=1, padx=20, pady=10, sticky="w")
             self.qty_entry.insert(0, "10")
-            self.qty_entry.bind("<KeyRelease>", lambda e: self.update_total_from_entry())
-            self.update_total_from_entry()
+            self.qty_entry.bind("<KeyRelease>", lambda e: self.update_from_liters_entry())
+            self.update_from_liters_entry()
 
         # Buttons
-        btn_continue = ctk.CTkButton(self.fuel_purchase_frame, text="Continue", command=self.btn_continue_to_payment)
+        # continue to payment method frame with continue
+        btn_continue = ctk.CTkButton(self.fuel_purchase_frame, text="Continue", command=lambda: [self._build_payment_method_frame(), self.show_frame(self.payment_method_frame)])
         btn_continue.grid(row=points_row + 1, column=0, padx=20, pady=20, sticky="w")
 
         btn_back = ctk.CTkButton(self.fuel_purchase_frame, text="Back", command=lambda: self.show_frame(self.fill_up_frame))
@@ -460,6 +464,9 @@ class AppGUI(ctk.CTk):
         # Clear previous widgets if any
         for widget in self.fill_up_frame.winfo_children():
             widget.destroy()
+
+        # Reset any previously selected pump/tank when entering fuel selection
+        self.leave_selected_pump_and_tank()
         
         # Configure grid
         self.fill_up_frame.grid_rowconfigure(0, weight=1)
@@ -483,7 +490,6 @@ class AppGUI(ctk.CTk):
         # Disable a fuel if no active pump has a tank with quantity above its min threshold
         for fuel in station_info['fuels']:
             if fuel['fuel_type'] != 'Heating Oil' and fuel['fuel_type'] != 'Household LPG':
-
                 # Check if fuel is available (pump active + tank quantity above min threshold)
                 available = self._is_fuel_available(fuel, station_info)
 
@@ -498,116 +504,31 @@ class AppGUI(ctk.CTk):
         btn_back = ctk.CTkButton(self.fill_up_frame, text="Back", command=lambda: self.show_frame(self.non_auto_fill_options_frame))
         btn_back.pack(side="bottom", anchor="e", pady=20, padx=20)
 
-    def _build_fuel_purchase_liters_frame(self):
-        '''Fuel Purchase Frame for NON-AUTOMATED liters mode'''
-        for widget in self.fuel_purchase_frame.winfo_children():
-            widget.destroy()
+    def find_pump_and_tank_for_fuel(self, fuel_type, station_info):
+        """
+        Find an active pump and its associated tank for the given fuel type at the station.
+        Returns a tuple (pump_id, tank_id) if found, else (None, None).
+        """
+        for tank in station_info['tanks']:
+            if tank['fuel_type'] != fuel_type: # if not the right fuel type
+                continue
 
-        station_info = dbop.get_admin_station_info(self.current_customer_station)
-        
-        # Layout
-        self.fuel_purchase_frame.grid_rowconfigure(0, weight=0)  # Station name
-        self.fuel_purchase_frame.grid_rowconfigure(1, weight=0)  # Title
-        self.fuel_purchase_frame.grid_rowconfigure(2, weight=1)  # Content
-        self.fuel_purchase_frame.grid_columnconfigure(0, weight=1)
-        self.fuel_purchase_frame.grid_columnconfigure(1, weight=1)
-        
-        # Display station name at the top
-        station_name = station_info.get('name') 
-        station_label = ctk.CTkLabel(self.fuel_purchase_frame, text=station_name, font=ctk.CTkFont(size=16, weight="bold"))
-        station_label.grid(row=0, column=0, columnspan=2, pady=(20, 5), sticky="n")
+            # Check tank has sufficient quantity
+            min_qty = tank.get('min_fuel_quantity', 0)
+            if tank['current_quantity'] <= min_qty:
+                continue
 
-        # Title (Purchase Fuel)
-        title_label = ctk.CTkLabel(self.fuel_purchase_frame, text=f"Purchase {self.selected_fuel['fuel_type']}", font=ctk.CTkFont(size=18, weight="bold"))
-        title_label.grid(row=1, column=0, columnspan=2, pady=(5, 10))
+            # Pumps for this tank (one-to-one mapping expected)
+            pumps_for_tank = [p for p in station_info['pumps'] if p['for_tank_id'] == tank['tank_id']]
+            for pump in pumps_for_tank:
+                if pump['is_active']:
+                    return (pump['pump_id'], tank['tank_id'])
 
-        # Input label
-        qty_label = ctk.CTkLabel(self.fuel_purchase_frame, text="Quantity (liters):")
-        qty_label.grid(row=2, column=0, padx=20, pady=10, sticky="e")
+        return (None, None)
 
-        # Total amount label
-        total_label = ctk.CTkLabel(self.fuel_purchase_frame, text="Total amount:")
-        total_label.grid(row=3, column=0, padx=20, pady=10, sticky="e")
-
-        self.total_amount_label = ctk.CTkLabel(self.fuel_purchase_frame, text="0.00€", font=ctk.CTkFont(size=16, weight="bold"))
-        self.total_amount_label.grid(row=3, column=1, padx=20, pady=10, sticky="w")
-
-        # Points row 
-        points_label = ctk.CTkLabel(self.fuel_purchase_frame, text="Points to earn:")
-        points_label.grid(row=4, column=0, padx=20, pady=10, sticky="e")
-
-        self.points_earned_label = ctk.CTkLabel(self.fuel_purchase_frame, text="0 points", font=ctk.CTkFont(size=14, weight="bold"))
-        self.points_earned_label.grid(row=4, column=1, padx=20, pady=10, sticky="w")
-
-        # Input widget for liters
-        self.qty_entry = ctk.CTkEntry(self.fuel_purchase_frame)
-        self.qty_entry.grid(row=2, column=1, padx=20, pady=10, sticky="w")
-        self.qty_entry.insert(0, "10")
-        self.qty_entry.bind("<KeyRelease>", lambda e: self.update_total_from_entry())
-        self.update_total_from_entry()
-
-        # Buttons
-        btn_continue = ctk.CTkButton(self.fuel_purchase_frame, text="Continue", command=self.btn_continue_to_payment)
-        btn_continue.grid(row=5, column=0, padx=20, pady=20, sticky="w")
-
-        btn_back = ctk.CTkButton(self.fuel_purchase_frame, text="Back", command=lambda: self.show_frame(self.fill_up_frame))
-        btn_back.grid(row=5, column=1, padx=20, pady=20, sticky="e")
-
-    def _build_fuel_purchase_euros_frame(self):
-        '''Fuel Purchase Frame for NON-AUTOMATED euros mode'''
-        for widget in self.fuel_purchase_frame.winfo_children():
-            widget.destroy()
-
-        station_info = dbop.get_admin_station_info(self.current_customer_station)
-        
-        # Layout
-        self.fuel_purchase_frame.grid_rowconfigure(0, weight=0)  # Station name
-        self.fuel_purchase_frame.grid_rowconfigure(1, weight=0)  # Title
-        self.fuel_purchase_frame.grid_rowconfigure(2, weight=1)  # Content
-        self.fuel_purchase_frame.grid_columnconfigure(0, weight=1)
-        self.fuel_purchase_frame.grid_columnconfigure(1, weight=1)
-        
-        # Display station name at the top
-        station_name = station_info.get('name') 
-        station_label = ctk.CTkLabel(self.fuel_purchase_frame, text=station_name, font=ctk.CTkFont(size=16, weight="bold"))
-        station_label.grid(row=0, column=0, columnspan=2, pady=(20, 5), sticky="n")
-
-        # Title (Purchase Fuel)
-        title_label = ctk.CTkLabel(self.fuel_purchase_frame, text=f"Purchase {self.selected_fuel['fuel_type']}", font=ctk.CTkFont(size=18, weight="bold"))
-        title_label.grid(row=1, column=0, columnspan=2, pady=(5, 10))
-
-        # Input label
-        amt_label = ctk.CTkLabel(self.fuel_purchase_frame, text="Euros (€):")
-        amt_label.grid(row=2, column=0, padx=20, pady=10, sticky="e")
-
-        # Liters display label
-        liters_text_label = ctk.CTkLabel(self.fuel_purchase_frame, text="Liters:")
-        liters_text_label.grid(row=3, column=0, padx=20, pady=10, sticky="e")
-
-        self.derived_liters_label = ctk.CTkLabel(self.fuel_purchase_frame, text="0.00 L", font=ctk.CTkFont(size=14, weight="bold")) 
-        self.derived_liters_label.grid(row=3, column=1, padx=20, pady=10, sticky="w")
-
-        # Points row 
-        points_label = ctk.CTkLabel(self.fuel_purchase_frame, text="Points to earn:")
-        points_label.grid(row=4, column=0, padx=20, pady=10, sticky="e")
-
-        self.points_earned_label = ctk.CTkLabel(self.fuel_purchase_frame, text="0 points", font=ctk.CTkFont(size=14, weight="bold"))
-        self.points_earned_label.grid(row=4, column=1, padx=20, pady=10, sticky="w")
-
-        # Input widget for euros
-        self.amount_entry = ctk.CTkEntry(self.fuel_purchase_frame)
-        self.amount_entry.grid(row=2, column=1, padx=20, pady=10, sticky="w")
-        self.amount_entry.insert(0, "20")
-        self.amount_entry.bind("<KeyRelease>", lambda e: self.update_from_euros_entry())
-        self.update_from_euros_entry()
-
-        # Buttons
-        btn_continue = ctk.CTkButton(self.fuel_purchase_frame, text="Continue", command=self.btn_continue_to_payment)
-        btn_continue.grid(row=5, column=0, padx=20, pady=20, sticky="w")
-
-        btn_back = ctk.CTkButton(self.fuel_purchase_frame, text="Back", command=lambda: self.show_frame(self.fill_up_frame))
-        btn_back.grid(row=5, column=1, padx=20, pady=20, sticky="e")
-
+    def leave_selected_pump_and_tank(self):
+        self.selected_tank_id = None
+        self.selected_pump_id = None
 
     def _is_fuel_available(self, fuel, station_info):
         """
@@ -659,13 +580,13 @@ class AppGUI(ctk.CTk):
         title.pack(pady=(5, 10), padx=20)
 
         # Buttons
-        btn_liters = ctk.CTkButton(self.non_auto_fill_options_frame, text="Liters", command=lambda: self.non_auto_option_selected_btn('liters'))
+        btn_liters = ctk.CTkButton(self.non_auto_fill_options_frame, text="Liters", command=lambda: self._on_non_auto_option_selected('liters'))
         btn_liters.pack(pady=10, padx=20, fill="x")
 
-        btn_euros = ctk.CTkButton(self.non_auto_fill_options_frame, text="Euros", command=lambda: self.non_auto_option_selected_btn('euros'))
+        btn_euros = ctk.CTkButton(self.non_auto_fill_options_frame, text="Euros", command=lambda: self._on_non_auto_option_selected('euros'))
         btn_euros.pack(pady=10, padx=20, fill="x")
 
-        btn_fill = ctk.CTkButton(self.non_auto_fill_options_frame, text="Fill", command=lambda: self.non_auto_option_selected_btn('fill'))
+        btn_fill = ctk.CTkButton(self.non_auto_fill_options_frame, text="Fill", command=lambda: self._on_non_auto_option_selected('fill'))
         btn_fill.pack(pady=10, padx=20, fill="x")
 
         # Back
@@ -677,77 +598,60 @@ class AppGUI(ctk.CTk):
         for widget in self.payment_method_frame.winfo_children():
             widget.destroy()
 
-        # Display station name at the top (if station is selected)
-        if hasattr(self, 'current_customer_station'):
-            station_info = dbop.get_admin_station_info(self.current_customer_station)
-            station_name = station_info.get('name', 'Unknown Station') if station_info else 'Unknown Station'
-            station_label = ctk.CTkLabel(
-                self.payment_method_frame, 
-                text=station_name,
-                font=ctk.CTkFont(size=16, weight="bold")
-            )
-            station_label.pack(pady=(20, 5))
+        # Display station name at the top 
+        station_info = dbop.get_admin_station_info(self.current_customer_station)
+        station_name = station_info.get('name', 'Unknown Station') 
+        station_label = ctk.CTkLabel(self.payment_method_frame, text=station_name, font=ctk.CTkFont(size=16, weight="bold"))
+        station_label.pack(pady=(20, 5))
 
         # Centered vertical layout using pack
         title = ctk.CTkLabel(self.payment_method_frame, text="Payment Method", font=ctk.CTkFont(size=18, weight="bold"))
         title.pack(pady=(5, 10), padx=20)
         
-        # Display final amount to pay (after tank capacity clamping)
-        if hasattr(self, 'non_auto_mode'):
-            if self.non_auto_mode == 'euros':
-                amount_text = self.amount_entry.get().strip() if hasattr(self, 'amount_entry') else "0"
-                try:
-                    amount = float(amount_text) if amount_text else 0.0
-                except ValueError:
-                    amount = 0.0
-                # Apply tank capacity clamping
-                if hasattr(self, 'customer_tank_capacity_to_fill_to_fill') and hasattr(self, 'selected_fuel'):
-                    price = self.selected_fuel.get('price_per_liter', 1.0)
-                    max_euros = self.customer_tank_capacity_to_fill_to_fill * price
-                    amount = min(amount, max_euros)
-            elif self.non_auto_mode == 'fill':
-                amount = self.fill_total_cost if hasattr(self, 'fill_total_cost') else 0.0
-                # Apply tank capacity clamping for fill mode
-                if hasattr(self, 'customer_tank_capacity_to_fill_to_fill') and hasattr(self, 'selected_fuel'):
-                    price = self.selected_fuel.get('price_per_liter', 1.0)
-                    max_euros = self.customer_tank_capacity_to_fill * price
-                    amount = min(amount, max_euros)
-            else:  # liters mode
-                qty_text = self.qty_entry.get().strip() if hasattr(self, 'qty_entry') else "0"
-                try:
-                    qty_liters = float(qty_text) if qty_text else 0.0
-                except ValueError:
-                    qty_liters = 0.0
-                # Apply tank capacity clamping
-                if hasattr(self, 'customer_tank_capacity_to_fill'):
-                    qty_liters = min(qty_liters, self.customer_tank_capacity_to_fill)
-                price_per_liter = self.selected_fuel.get('price_per_liter', 1.0) if hasattr(self, 'selected_fuel') else 1.0
-                amount = qty_liters * price_per_liter
-        else:
-            amount = 0.0
+        # Display final amount to pay 
+        if self.non_auto_mode == 'euros':
+            amount_text = self.amount_entry.get().strip() 
+            try:
+                amount = float(amount_text) if amount_text else 0.0
+            except ValueError:
+                amount = 0.0
+
+            price = self.selected_fuel.get('price_per_liter', 1.0)
+            max_euros = self.customer_tank_capacity * price # maximum euros based on tank capacity of the customer
+            amount = min(amount, max_euros) # amount of euros the customer has to pay is decided from what he selected and what's his tank capacity
+
+        elif self.non_auto_mode == 'fill':
+            amount = self.fill_total_cost # in fill mode, amount is precomputed based on tank capacity, we have computed that self.fill_total_cost = self.customer_tank_capacity * price_per_liter
+
+        else:  # liters mode
+            qty_text = self.qty_entry.get().strip() 
+            try:
+                qty_liters = float(qty_text) if qty_text else 0.0
+            except ValueError:
+                qty_liters = 0.0
+               
+            qty_liters = min(qty_liters, self.customer_tank_capacity) # limit liters to tank capacity
+            price_per_liter = self.selected_fuel.get('price_per_liter', 1.0) 
+            amount = qty_liters * price_per_liter
         
-        amount_label = ctk.CTkLabel(
-            self.payment_method_frame, 
-            text=f"Amount to Pay: €{amount:.2f}",
-            font=ctk.CTkFont(size=14, weight="bold"),
-            text_color="green"
-        )
+        amount_label = ctk.CTkLabel(self.payment_method_frame, text=f"Amount to Pay: €{amount:.2f}",font=ctk.CTkFont(size=14, weight="bold"),text_color="green")
         amount_label.pack(pady=(0, 20), padx=20)
 
-        btn_cash = ctk.CTkButton(self.payment_method_frame, text="Cash", command=lambda: self.confirm_non_auto_purchase("Cash"))
+        btn_cash = ctk.CTkButton(self.payment_method_frame, text="Cash", command=lambda: self.confirm_non_auto_purchase("Cash", amount))
         btn_cash.pack(pady=8, padx=20)
 
-        btn_card = ctk.CTkButton(self.payment_method_frame, text="Card", command=lambda: self.confirm_non_auto_purchase("Card"))
+        btn_card = ctk.CTkButton(self.payment_method_frame, text="Card", command=lambda: self.confirm_non_auto_purchase("Card", amount))
         btn_card.pack(pady=8, padx=20)
 
-        btn_fuel_card = ctk.CTkButton(self.payment_method_frame, text="Fuel Card", command=lambda: self.confirm_non_auto_purchase("Fuel Card"))
+        btn_fuel_card = ctk.CTkButton(self.payment_method_frame, text="Fuel Card", command=lambda: self.confirm_non_auto_purchase("Fuel Card", amount))
         btn_fuel_card.pack(pady=8, padx=20)
 
         btn_add_points = ctk.CTkButton(self.payment_method_frame, text="Add Points", command=self.btn_go_to_add_points)
         btn_add_points.pack(pady=(20, 8), padx=20)
         
-        btn_register_shell = ctk.CTkButton(self.payment_method_frame, text="Register in Shell go+", command=self.btn_go_to_shell_go_registration)
+        btn_register_shell = ctk.CTkButton(self.payment_method_frame, text="Register in Shell go+", command=self.btn_register_to_shell_go)
         btn_register_shell.pack(pady=8, padx=20)
+        
         # Back button
         btn_back = ctk.CTkButton(self.payment_method_frame, text="Back", command=lambda: self.show_frame(self.fill_up_frame))
         btn_back.pack(side="bottom", anchor="e", padx=20, pady=20)
@@ -822,7 +726,7 @@ class AppGUI(ctk.CTk):
         content_frame.grid(row=2, column=0, padx=40, pady=20)
         
         # Liters filled
-        liters_info = ctk.CTkLabel(content_frame,text=f"Liters filled: {self.fill_liters:.2f} L", font=ctk.CTkFont(size=16, weight="bold"))
+        liters_info = ctk.CTkLabel(content_frame,text=f"Liters filled: {self.customer_tank_capacity:.2f} L", font=ctk.CTkFont(size=16, weight="bold"))
         liters_info.pack(pady=10)
 
         # Total cost
@@ -970,9 +874,9 @@ class AppGUI(ctk.CTk):
         amount_of_money = requested_amount
         
         # Clamp to tank capacity on confirmation
-        if hasattr(self, 'customer_tank_capacity_to_fill') and hasattr(self, 'selected_fuel'):
+        if hasattr(self, 'customer_tank_capacity') and hasattr(self, 'selected_fuel'):
             price = self.selected_fuel.get('price_per_liter', 1.0)
-            max_euros = self.customer_tank_capacity_to_fill * price
+            max_euros = self.customer_tank_capacity * price
             amount_of_money = min(amount_of_money, max_euros)
         
         # Apply points discount if redeemed
@@ -1013,12 +917,11 @@ class AppGUI(ctk.CTk):
         if hasattr(self, 'redemption_approved') and self.redemption_approved and hasattr(self, 'customer_id_for_points'):
             dbop.redeem_points(self.customer_id_for_points, self.points_redeemed)
         
-        # Deduct fuel from tank
-        if hasattr(self, 'selected_fuel') and amount_of_money > 0:
-            fuel_id = self.selected_fuel.get('prod_id')
+        # Deduct fuel from the selected tank
+        if hasattr(self, 'selected_fuel') and hasattr(self, 'selected_tank_id') and amount_of_money > 0:
             price = self.selected_fuel.get('price_per_liter', 1.0)
             liters_purchased = amount_of_money / price if price else 0.0
-            dbop.deduct_fuel_from_tank(for_station_id, fuel_id, liters_purchased)
+            dbop.deduct_fuel_from_tank(self.selected_tank_id, liters_purchased)
         
         # Show completion message with amount paid and change/discount received
         message = f"Thank you for your purchase!\n\nAmount Paid: €{amount_of_money:.2f}"
@@ -1033,65 +936,31 @@ class AppGUI(ctk.CTk):
         
         self.show_frame(self.customer_station_frame)
 
-    def confirm_non_auto_purchase(self, payment_method):
+    def confirm_non_auto_purchase(self, payment_method, amount):
         '''Confirm non-automated fuel purchase and save transaction'''
-        from datetime import datetime
         
         # Get transaction details
         trans_date = datetime.now().timestamp()
+        amount_of_money = amount # amount already calculated and clamped to tank capacity in _build_payment_method_frame
         
-        # Get the fuel amount (in euros or liters)
-        if hasattr(self, 'non_auto_mode'):
-            if self.non_auto_mode == 'euros':
-                amount_text = self.amount_entry.get().strip() if hasattr(self, 'amount_entry') else "0"
-                amount_of_money = float(amount_text) if amount_text else 0.0
-                # Clamp euros to tank capacity
-                if hasattr(self, 'customer_tank_capacity_to_fill') and hasattr(self, 'selected_fuel'):
-                    price = self.selected_fuel.get('price_per_liter', 1.0)
-                    max_euros = self.customer_tank_capacity_to_fill * price
-                    amount_of_money = min(amount_of_money, max_euros)
-            elif self.non_auto_mode == 'fill':
-                # For fill mode, use the pre-calculated values
-                amount_of_money = self.fill_total_cost
-                total_points = self.fill_points
-            else:  # liters mode
-                qty_text = self.qty_entry.get().strip() if hasattr(self, 'qty_entry') else "0"
-                qty_liters = float(qty_text) if qty_text else 0.0
-                # Clamp liters to tank capacity
-                if hasattr(self, 'customer_tank_capacity_to_fill'):
-                    qty_liters = min(qty_liters, self.customer_tank_capacity_to_fill)
-                price_per_liter = self.selected_fuel.get('price_per_liter', 1.0)
-                amount_of_money = qty_liters * price_per_liter
+        # Calculate liters purchased
+        price = self.selected_fuel.get('price_per_liter', 1.0)
+        liters_purchased = amount_of_money / price if price else 0.0
+        
+        # Calculate points for FUEL: liters × points_per_liter (only if customer has card)
+        if self.customer_has_card:
+            points_per_liter = self.selected_fuel.get('points_per_liter', 0)
+            total_points = int(liters_purchased * points_per_liter)
         else:
-            amount_of_money = 0.0
-        
-        # Calculate points for FUEL: liters × points_per_liter (skip if already calculated for fill mode)
-        if not (hasattr(self, 'non_auto_mode') and self.non_auto_mode == 'fill'):
-            # Only add points if customer has provided their card number
-            if hasattr(self, 'customer_has_card') and self.customer_has_card:
-                if amount_of_money > 0 and hasattr(self, 'selected_fuel'):
-                    price = self.selected_fuel.get('price_per_liter', 1.0)
-                    liters_purchased = amount_of_money / price if price else 0.0
-                    points_per_liter = self.selected_fuel.get('points_per_liter', 0)
-                    total_points = int(liters_purchased * points_per_liter)
-                else:
-                    total_points = 0
-            else:
-                total_points = 0
-        # For fill mode, check if customer has card for points
-        elif hasattr(self, 'non_auto_mode') and self.non_auto_mode == 'fill':
-            if hasattr(self, 'customer_has_card') and self.customer_has_card:
-                total_points = self.fill_points
-            else:
-                total_points = 0
+            total_points = 0
         
         # Apply points discount if redeemed
-        if hasattr(self, 'euros_discount') and self.euros_discount > 0:
+        if self.euros_discount > 0:
             amount_of_money = max(0, amount_of_money - self.euros_discount)
         
         # Get station ID and customer ID if available
         for_station_id = self.current_customer_station
-        for_cust_id = getattr(self, 'customer_id_for_points', None)
+        for_cust_id = self.customer_id_for_points # may be None if no card provided
         
         # Insert transaction
         try:
@@ -1101,23 +970,19 @@ class AppGUI(ctk.CTk):
             return
         
         # Update customer points if they provided card and earned points
-        if total_points > 0 and hasattr(self, 'customer_id_for_points'):
-            dbop.update_customer_points(self.customer_id_for_points, total_points)
+        if total_points > 0 and for_cust_id is not None:
+            dbop.update_customer_points(for_cust_id, total_points)
         
         # Redeem points if applicable
-        if hasattr(self, 'redemption_approved') and self.redemption_approved and hasattr(self, 'customer_id_for_points'):
-            dbop.redeem_points(self.customer_id_for_points, self.points_redeemed)
+        if self.redemption_approved and for_cust_id is not None:
+            dbop.redeem_points(for_cust_id, self.points_redeemed)
         
         # Deduct fuel from tank
-        if hasattr(self, 'selected_fuel') and amount_of_money > 0:
-            fuel_id = self.selected_fuel.get('prod_id')
-            price = self.selected_fuel.get('price_per_liter', 1.0)
-            liters_purchased = amount_of_money / price if price else 0.0
-            dbop.deduct_fuel_from_tank(for_station_id, fuel_id, liters_purchased)
+        dbop.deduct_fuel_from_tank(self.selected_tank_id, liters_purchased)
         
         # Show completion message with amount paid and discount info
         message = f"Thank you for your purchase!\n\nAmount Paid: €{amount_of_money:.2f}"
-        if hasattr(self, 'euros_discount') and self.euros_discount > 0:
+        if self.euros_discount > 0:
             message += f"\nPoints Discount: €{self.euros_discount:.2f}"
         messagebox.showinfo("Purchase Complete", message)
         
@@ -1304,9 +1169,9 @@ class AppGUI(ctk.CTk):
                         amount = 0.0
                     
                     # Clamp to tank capacity if applicable
-                    if hasattr(self, 'customer_tank_capacity_to_fill'):
+                    if hasattr(self, 'customer_tank_capacity'):
                         price = self.selected_fuel.get('price_per_liter', 1.0)
-                        max_euros = self.customer_tank_capacity_to_fill * price
+                        max_euros = self.customer_tank_capacity * price
                         amount = min(amount, max_euros)
                     
                     # Calculate points for FUEL: liters × points_per_liter
@@ -1444,14 +1309,18 @@ class AppGUI(ctk.CTk):
         # Wait for window to close
         self.wait_window(redemption_window)
 
-    def non_auto_option_selected_btn(self, mode):
-        '''builds the frame based on selected non-automated mode'''
+    def _on_non_auto_option_selected(self, mode):
         # Set the selected mode
         self.non_auto_mode = mode
         
-        # All modes start with fuel selection
-        self._build_fill_up_frame()
-        self.show_frame(self.fill_up_frame)
+        if mode == 'fill':
+            # For fill mode, go directly to fuel selection, then show fill summary
+            self._build_fill_up_frame()
+            self.show_frame(self.fill_up_frame)
+        else:
+            # Continue to fuel selection for liters/euros mode
+            self._build_fill_up_frame()
+            self.show_frame(self.fill_up_frame)
 
     def update_from_euros_entry(self):
         """When user types euros (non-automated + euros mode): compute liters and points."""
@@ -1459,11 +1328,10 @@ class AppGUI(ctk.CTk):
             amt_text = self.amount_entry.get().strip()
             euros = float(amt_text) if amt_text else 0.0
             price = self.selected_fuel['price_per_liter']
-            liters = euros / price if price else 0.0
+            liters = euros / price 
 
             # Show computed liters
-            if hasattr(self, 'derived_liters_label'):
-                self.derived_liters_label.configure(text=f"{liters:.2f} L")
+            self.derived_liters_label.configure(text=f"{liters:.2f} L")
 
             # Points based on liters
             points_per_liter = self.selected_fuel.get('points_per_liter', 0)
@@ -1471,13 +1339,12 @@ class AppGUI(ctk.CTk):
             self.points_earned_label.configure(text=f"{points} points")
             
         except ValueError:
-            if hasattr(self, 'derived_liters_label'):
-                self.derived_liters_label.configure(text="0.00 L")
-            if hasattr(self, 'points_earned_label'):
-                self.points_earned_label.configure(text="0 points")
+            self.derived_liters_label.configure(text="0.00 L")
+            self.points_earned_label.configure(text="0 points")
 
 
-    def update_total_from_entry(self):
+
+    def update_from_liters_entry(self):
         """Update total amount and points from entry field for non-automated stations (liters mode)"""
         try:
             qty_text = self.qty_entry.get().strip()
@@ -1487,12 +1354,12 @@ class AppGUI(ctk.CTk):
                 qty = float(qty_text)
             
             price = self.selected_fuel['price_per_liter']
-            total = qty * price
+            total = qty * price # Calculate total amount of money
             self.total_amount_label.configure(text=f"{total:.2f}€")
             
             #  Calculate points
             points_per_liter = self.selected_fuel.get('points_per_liter', 0)
-            points = int(qty * points_per_liter)
+            points = int(qty * points_per_liter) 
             self.points_earned_label.configure(text=f"{points} points")
         except ValueError:
             # Invalid number entered
@@ -1526,17 +1393,17 @@ class AppGUI(ctk.CTk):
 
     def _reset_customer_session(self):
         """Reset all customer session variables after a transaction"""
-        self.customer_tank_capacity_to_fill = 0
+        self.customer_tank_capacity = 0
         self.redemption_approved = False
         self.points_redeemed = 0
         self.euros_discount = 0.0
         self.customer_has_card = False
         self.customer_id_for_points = None
         self.automated_amount_total = 0.0
-        if hasattr(self, 'selected_store_items'):
-            self.selected_store_items = {}
-        if hasattr(self, 'store_total_cost'):
-            self.store_total_cost = 0.0
+        self.selected_pump_id = None
+        self.selected_tank_id = None
+        self.selected_store_items = {}
+        self.store_total_cost = 0.0
 
     def generate_card_number(self):
         """Generate a random 7-digit card number"""
@@ -1597,10 +1464,10 @@ class AppGUI(ctk.CTk):
     def btn_back_func(self, frame):
         self.show_frame(frame)
     
-
-    def btn_continue_to_payment(self):
-        self._build_payment_method_frame()
-        self.show_frame(self.payment_method_frame)
+    #SHOW ALL STATIONS 
+    def btn_show_stations_func(self, frame):
+        self.show_frame(frame)
+        #dbop.print_stations()
 
 
     #SHOW TRANSACTION HISTORY
@@ -1612,16 +1479,14 @@ class AppGUI(ctk.CTk):
     #GO TO SELECTED STATION FOR ADMIN OR CUSTOMER
     def go_to_station_func(self, station, frame):
         if frame == self.admin_station_frame:
-            # Set current admin station and build frame
             self.current_admin_station = station
             self._build_admin_station_frame(station)
         elif frame == self.customer_station_frame:
-            # Set current customer station and build frame
             self.current_customer_station = station
             # Generate the remaining fuel tank capacity available for refueling using Gaussian distribution (mean=25, std=10, min=10, max=80)
-            self.customer_tank_capacity_to_fill_to_fill = max(10, min(80, np.random.normal(25, 10)))
+            self.customer_tank_capacity = max(10, min(80, np.random.normal(25, 10)))
             # Initialize customer_has_card flag to False when entering a station
-            self.customer_has_card = False # Customer has not provided card yet
+            self.customer_has_card = False
             self._build_customer_station_frame()
         self.show_frame(frame)
 
@@ -1645,13 +1510,19 @@ class AppGUI(ctk.CTk):
         self.show_frame(self.store_frame)
 
     def select_fuel(self, fuel):
+        '''Handle fuel selection and navigate to next frame based on station type and mode'''
         # in automated stations the next frame is payment method selection
         # in non-automated stations the next frame is either fuel purchase (liters/euros) or fill summary (fill mode)
 
         self.selected_fuel = fuel # Store selected fuel for later use
 
-        # Check if station is automated
+        # Get station info and find which pump is being used
         station_info = dbop.get_admin_station_info(self.current_customer_station)
+        
+        # Find the pump_id for this fuel selection, the button is available only if there is an active pump and sufficient fuel in tank
+        self.selected_pump_id,self.selected_tank_id = dbop.get_pump_and_tank_for_fuel(self.current_customer_station, fuel.get('prod_id'))
+        
+        # Check if station is automated
         is_automated = station_info.get('automated', False)
         
         if is_automated:
@@ -1659,38 +1530,31 @@ class AppGUI(ctk.CTk):
             self._build_payment_method_frame_automated()
             self.show_frame(self.payment_method_frame)
         else:
-            # For non-automated: check the mode
+            # For non-automated: check if it's fill mode
             if self.non_auto_mode == 'fill':
                 # Calculate fill amount using tank capacity
-                self.fill_liters = self.customer_tank_capacity_to_fill_to_fill # liters to fill to full tank
                 price_per_liter = fuel.get('price_per_liter', 0)
 
                 # cost = liters to fill × price_per_liter
-                self.fill_total_cost = self.fill_liters * price_per_liter
+                self.fill_total_cost = self.customer_tank_capacity * price_per_liter
 
                 # Calculate points for FUEL: liters × points_per_liter
                 points_per_liter = fuel.get('points_per_liter', 0)
-                self.fill_points = int(self.fill_liters * points_per_liter)
+                self.fill_points = int(self.customer_tank_capacity * points_per_liter)
                 
                 # Show fill summary frame
                 self._build_fill_summary_frame()
                 self.show_frame(self.fill_summary_frame)
-            
-            elif self.non_auto_mode == 'liters':
-                # Show liters input frame
-                self._build_fuel_purchase_liters_frame()
-                self.show_frame(self.fuel_purchase_frame)
-            
-            elif self.non_auto_mode == 'euros':
-                # Show euros input frame
-                self._build_fuel_purchase_euros_frame()
+            else:
+                # For liters/euros mode: go to fuel purchase frame
+                self._build_fuel_purchase_frame()
                 self.show_frame(self.fuel_purchase_frame)
 
     def btn_go_to_add_points(self):
         self._build_add_points_frame()
         self.show_frame(self.add_points_frame)
 
-    def btn_go_to_shell_go_registration(self):
+    def btn_register_to_shell_go(self):
         self._build_shell_go_registration_frame()
         self.show_frame(self.shell_go_frame)
 
@@ -1774,7 +1638,8 @@ class AppGUI(ctk.CTk):
                                  "Θερμό", "Αντιηλιακό", "Κιτ Πρώτων Βοηθειών", "Κολλητική Ταινία", "Λάστιχα Ασφάλειας"]
         }
 
-        products = category_map.get(category, [])
+        products = category_map.get(category, []) # retrieves list of products for the selected category
+         # Get store products dictionary once
         store_products = dbop.generate_store_products_dict()
 
         for product_name in products:
@@ -1920,7 +1785,7 @@ class AppGUI(ctk.CTk):
         btn_shell_go = ctk.CTkButton(
             points_frame,
             text="Register in Shell Go+",
-            command=self.btn_go_to_shell_go_registration
+            command=self.btn_register_to_shell_go
         )
         btn_shell_go.grid(row=0, column=1, padx=(10, 0), sticky="ew")
 
