@@ -180,25 +180,33 @@ class AppGUI(ctk.CTk):
     #ADMIN FRAME
     def _build_admin_frame(self): 
         '''First Administrator Frame'''
-        # make rows and columns expand evenly
+
+        # Configure grid for centered buttons
         self.admin_frame.grid_rowconfigure(0, weight=1)
-        self.admin_frame.grid_rowconfigure(1, weight=1)
-        self.admin_frame.grid_rowconfigure(2, weight=0)  # Back button row
+        self.admin_frame.grid_rowconfigure(1, weight=0)  # Buttons row
+        self.admin_frame.grid_rowconfigure(2, weight=1) # Back button row
+
         self.admin_frame.grid_columnconfigure(0, weight=1)
-        self.admin_frame.grid_columnconfigure(1, weight=1)
+        self.admin_frame.grid_columnconfigure(1, weight=0)  # Center column
+        self.admin_frame.grid_columnconfigure(2, weight=1)
 
-        #buttons
-        btn_show_stations = ctk.CTkButton(self.admin_frame, text="Show Stations", command=lambda: self.btn_show_stations_func(self.admin_all_stations_frame))
-        btn_show_stations.grid(row=0, column=0, padx=20, pady=20, sticky="we")
+        # Buttons container frame (centered)
+        buttons_frame = ctk.CTkFrame(self.admin_frame, fg_color="transparent") # transparent to blend with parent
+        buttons_frame.grid(row=0, column=1, padx=20, pady=20)
+        buttons_frame.grid_columnconfigure(0, weight=0) # single column for buttons
 
-        btn_show_transactions = ctk.CTkButton(self.admin_frame, text="Show all Transactions", command=lambda: self._build_transactions_frame() or self.show_frame(self.transactions_frame))
-        btn_show_transactions.grid(row=0, column=1, padx=20, pady=20, sticky="we")
+        btn_show_stations = ctk.CTkButton(buttons_frame, text="Show Stations", command=lambda: self.btn_show_stations_func(self.admin_all_stations_frame))
+        btn_show_stations.grid(row=0, column=1, padx=10, pady=10, sticky="ew")
 
-        btn_show_customers = ctk.CTkButton(self.admin_frame, text="Shell Go+ Customers", command=lambda: self._build_shell_go_customers_frame() or self.show_frame(self.shell_go_customers_frame))
-        btn_show_customers.grid(row=1, column=0, padx=20, pady=20, sticky="we")
+        btn_show_transactions = ctk.CTkButton(buttons_frame, text="Show all Transactions", command=lambda: self._build_transactions_frame() or self.show_frame(self.transactions_frame))
+        btn_show_transactions.grid(row=1, column=1, padx=10, pady=10, sticky="ew")
 
+        btn_show_customers = ctk.CTkButton(buttons_frame, text="Shell Go+ Customers", command=lambda: self._build_shell_go_customers_frame() or self.show_frame(self.shell_go_customers_frame))
+        btn_show_customers.grid(row=2, column=1, padx=10, pady=10, sticky="ew")
+
+        # Back button (bottom right)
         btn_back = ctk.CTkButton(self.admin_frame, text="Back", command=lambda: self.btn_back_func(self.main_frame))
-        btn_back.grid(row=2, column=1, padx=20, pady=20, sticky="se")
+        btn_back.grid(row=3, column=2, padx=20, pady=20, sticky="se")
 
 
     #CUSTOMER FRAME
@@ -693,7 +701,7 @@ class AppGUI(ctk.CTk):
 
     def select_payment_method(self, payment_method):
         '''only for automated stations'''
-        
+
         self.selected_payment_method = payment_method
         self._build_auto_euro_amount_selection_frame()
         self.show_frame(self.fuel_purchase_frame)
@@ -854,39 +862,38 @@ class AppGUI(ctk.CTk):
         self.points_earned_label.configure(text=f"{points} points")
 
     def cancel_automated_purchase(self):
+        '''Cancel automated purchase and return to station frame'''
         self.automated_amount_total = 0.0
         self.show_frame(self.customer_station_frame)
 
     def confirm_automated_purchase(self):
         '''Confirm fuel purchase and save transaction'''
-        from datetime import datetime
         
         # Get payment method
-        payment_method = getattr(self, 'selected_payment_method', 'Unknown')
+        payment_method = self.selected_payment_method
         
         # Get transaction details
         trans_date = datetime.now().timestamp()
-        requested_amount = getattr(self, 'automated_amount_total', 0.0)
+        requested_amount = self.automated_amount_total
         amount_of_money = requested_amount
         
-        # Clamp to tank capacity on confirmation
-        if hasattr(self, 'customer_tank_capacity') and hasattr(self, 'selected_fuel'):
-            price = self.selected_fuel.get('price_per_liter', 1.0)
-            max_euros = self.customer_tank_capacity * price
-            amount_of_money = min(amount_of_money, max_euros)
+        # compute max euros based on tank capacity
+        price = self.selected_fuel.get('price_per_liter', 1.0)
+        max_euros = self.customer_tank_capacity * price
+        amount_of_money = min(amount_of_money, max_euros)
         
         # Apply points discount if redeemed
-        if hasattr(self, 'euros_discount') and self.euros_discount > 0:
+        if self.euros_discount > 0:
             amount_of_money = max(0, amount_of_money - self.euros_discount)
         
         # Calculate change (money returned to customer)
         change = requested_amount - amount_of_money
         
         # Calculate points for FUEL: liters × points_per_liter (only if customer has provided card)
-        if hasattr(self, 'customer_has_card') and self.customer_has_card:
-            if amount_of_money > 0 and hasattr(self, 'selected_fuel'):
+        if self.customer_has_card:
+            if amount_of_money > 0: # only calculate points if money was actually spent
                 price = self.selected_fuel.get('price_per_liter', 1.0)
-                liters_purchased = amount_of_money / price if price else 0.0
+                liters_purchased = amount_of_money / price 
                 points_per_liter = self.selected_fuel.get('points_per_liter', 0)
                 total_points = int(liters_purchased * points_per_liter)
             else:
@@ -896,7 +903,7 @@ class AppGUI(ctk.CTk):
         
         # Get station ID and customer ID if available
         for_station_id = self.current_customer_station
-        for_cust_id = getattr(self, 'customer_id_for_points', None)
+        for_cust_id = self.customer_id_for_points
         
         # Insert transaction
         try:
@@ -906,25 +913,26 @@ class AppGUI(ctk.CTk):
             return
         
         # Update customer points if they provided card and earned points
-        if total_points > 0 and hasattr(self, 'customer_id_for_points'):
+        if total_points > 0:
             dbop.update_customer_points(self.customer_id_for_points, total_points)
         
-        # Redeem points if applicable
-        if hasattr(self, 'redemption_approved') and self.redemption_approved and hasattr(self, 'customer_id_for_points'):
+        # Redeem points if possible
+        if self.redemption_approved and self.customer_id_for_points:
             dbop.redeem_points(self.customer_id_for_points, self.points_redeemed)
         
         # Deduct fuel from the selected tank
-        if hasattr(self, 'selected_fuel') and hasattr(self, 'selected_tank_id') and amount_of_money > 0:
+        if amount_of_money > 0:
             price = self.selected_fuel.get('price_per_liter', 1.0)
-            liters_purchased = amount_of_money / price if price else 0.0
+            liters_purchased = amount_of_money / price 
             dbop.deduct_fuel_from_tank(self.selected_tank_id, liters_purchased)
         
-        # Show completion message with amount paid and change/discount received
+        # Show completion message with amount paid and change/discount/points received
         message = f"Thank you for your purchase!\n\nAmount Paid: €{amount_of_money:.2f}"
-        if hasattr(self, 'euros_discount') and self.euros_discount > 0:
-            message += f"\nPoints Discount: €{self.euros_discount:.2f}"
+        if self.euros_discount > 0:
+            message += f"\nEuros Discount: {self.euros_discount:.2f} €"
         if change > 0:
-            message += f"\nChange Received: €{change:.2f}"
+            message += f"\nChange Received: {change:.2f} €"
+        message += f"\nPoints Earned: {total_points} points"
         messagebox.showinfo("Purchase Complete", message)
         
         # Reset all customer session data
@@ -1127,152 +1135,120 @@ class AppGUI(ctk.CTk):
         btn_back.pack(side="bottom", anchor="e", padx=20, pady=20)
 
     def _submit_add_points(self):
-        number = self.card_number_entry.get().strip() if hasattr(self, "card_number_entry") else ""
-        if number:
-            # Look up customer by card number
-            customer = dbop.get_customer_by_card_number(number)
-            
-            if customer:
-                # Store the card number and customer info
-                self.customer_card_number = number
-                self.customer_has_card = True
-                self.customer_id_for_points = customer['customer_id']
-                self.current_customer_points = customer['points']
-                
-                # Calculate points to be earned from current purchase
-                points_to_earn = 0
-                if hasattr(self, 'selected_fuel'):
-                    # Determine the amount based on context
-                    if hasattr(self, 'automated_amount_total'):
-                        # Automated station
-                        amount = self.automated_amount_total
-                    elif hasattr(self, 'non_auto_mode'):
-                        # Non-automated station
-                        if self.non_auto_mode == 'euros':
-                            amount_text = self.amount_entry.get().strip() if hasattr(self, 'amount_entry') else "0"
-                            amount = float(amount_text) if amount_text else 0.0
-                        elif self.non_auto_mode == 'fill':
-                            amount = self.fill_total_cost if hasattr(self, 'fill_total_cost') else 0.0
-                        else:  # liters
-                            qty_text = self.qty_entry.get().strip() if hasattr(self, 'qty_entry') else "0"
-                            qty_liters = float(qty_text) if qty_text else 0.0
-                            price_per_liter = self.selected_fuel.get('price_per_liter', 1.0)
-                            amount = qty_liters * price_per_liter
-                    else:
-                        amount = 0.0
-                    
-                    # Clamp to tank capacity if applicable
-                    if hasattr(self, 'customer_tank_capacity'):
-                        price = self.selected_fuel.get('price_per_liter', 1.0)
-                        max_euros = self.customer_tank_capacity * price
-                        amount = min(amount, max_euros)
-                    
-                    # Calculate points for FUEL: liters × points_per_liter
-                    if amount > 0:
-                        price = self.selected_fuel.get('price_per_liter', 1.0)
-                        liters = amount / price if price else 0.0
-                        points_per_liter = self.selected_fuel.get('points_per_liter', 0)
-                        points_to_earn = int(liters * points_per_liter)
-                    else:
-                        points_to_earn = 0
-                
-                customer_name = f"{customer['fname']} {customer['lname']}".strip()
-                
-                # Check if customer has at least 250 points for redemption
-                if self.current_customer_points >= 250:
-                    # Show redemption dialog
-                    self._show_points_redemption_dialog(customer_name, self.current_customer_points, points_to_earn)
-                else:
-                    # Just show welcome message with points to earn
-                    messagebox.showinfo("Add Points", f"Card number found!\nWelcome back, {customer_name}!\nPoints to earn: {points_to_earn}")
-                
-                # Return to the appropriate frame based on context
-                if hasattr(self, 'store_total_cost') and self.store_total_cost > 0:
-                    # Coming from store - rebuild and show store payment frame
-                    self._build_store_payment_frame()
-                    self.show_frame(self.store_payment_frame)
-                else:
-                    # Coming from fuel purchase - show payment method frame
-                    self.show_frame(self.payment_method_frame)
-            else:
-                messagebox.showerror("Add Points", f"Card number '{number}' not found.\nPlease register first through Shell Go+ Registration.")
-                return
-        else:
+        '''Handle Add Points button'''
+        
+        # Get card number entry from user
+        number = self.card_number_entry.get().strip()
+        
+        # if user doesn't enter anything
+        if not number:
             messagebox.showwarning("Add Points", "Please enter a card number.")
+            return
+        
+        customer = dbop.get_customer_by_card_number(number)
+        
+        # if card number not found
+        if not customer:
+            messagebox.showerror("Add Points", f"Card number '{number}' not found.\nPlease register first through Shell Go+ Registration.")
+            return
+        
+        # Store the card number and customer info
+        self.customer_card_number = number
+        self.customer_has_card = True
+        self.customer_id_for_points = customer['customer_id']
+        self.current_customer_points = customer['points']
+        
+        # Calculate points to be earned from current purchase
+        points_to_earn = 0
+        
+        if self.automated_amount_total > 0:
+            # Automated flow
+            amount = self.automated_amount_total
+        elif self.non_auto_mode == 'euros':
+            # Non-automated euros mode
+            amount_text = self.amount_entry.get().strip()
+            amount = float(amount_text) if amount_text else 0.0
+        elif self.non_auto_mode == 'fill':
+            # Non-automated fill mode
+            amount = self.fill_total_cost
+        else:
+            # Non-automated liters mode
+            qty_text = self.qty_entry.get().strip()
+            qty_liters = float(qty_text) if qty_text else 0.0
+            price_per_liter = self.selected_fuel.get('price_per_liter', 1.0)
+            amount = qty_liters * price_per_liter
+        
+        # keep in mind the max euros based on tank capacity
+        price = self.selected_fuel.get('price_per_liter', 1.0)
+        max_euros = self.customer_tank_capacity * price
+        amount = min(amount, max_euros)
+        
+        # Calculate points
+        if amount > 0: # if money was actually spent
+            liters = amount / price
+            points_per_liter = self.selected_fuel.get('points_per_liter', 0)
+            points_to_earn = int(liters * points_per_liter)
+        
+        customer_name = f"{customer['fname']} {customer['lname']}".strip() # get customer full name
+        
+        # Check if customer has at least 250 points for redemption
+        if self.current_customer_points >= 250:
+            self._show_points_redemption_dialog(customer_name, self.current_customer_points, points_to_earn)
+        else:
+            messagebox.showinfo("Add Points", f"Card number found!\nWelcome back, {customer_name}!\nPoints to earn: {points_to_earn}")
+        
+        # Navigate to appropriate frame (store/payment method)
+        if self.store_total_cost > 0:
+            self._build_store_payment_frame()
+            self.show_frame(self.store_payment_frame)
+        else:
+            self.show_frame(self.payment_method_frame)
 
     def _show_points_redemption_dialog(self, customer_name, customer_points, points_to_earn):
         '''Show dialog for points redemption if customer has at least 250 points'''
         # Calculate available euros from points (250 points = 1 euro)
-        euros_available = customer_points / 250.0
+        euros_available_for_redemption = customer_points // 250.0 # floored division
+        points_available_for_redemption = int(euros_available_for_redemption * 250)
         
         # Create a new window for redemption
         redemption_window = ctk.CTkToplevel(self)
         redemption_window.title("Points Redemption")
         redemption_window.geometry("400x300")
-        redemption_window.transient(self)
-        redemption_window.grab_set()  # Make window modal
-        
-        # Center the window
-        redemption_window.update_idletasks()
-        x = (redemption_window.winfo_screenwidth() // 2) - (400 // 2)
-        y = (redemption_window.winfo_screenheight() // 2) - (300 // 2)
-        redemption_window.geometry(f"400x300+{x}+{y}")
+        redemption_window.transient(self) # Set to be on top of the main window
+        redemption_window.grab_set()  # block interaction with main window
         
         # Title
-        title_label = ctk.CTkLabel(
-            redemption_window,
-            text="Points Redemption",
-            font=ctk.CTkFont(size=18, weight="bold")
-        )
+        title_label = ctk.CTkLabel(redemption_window,text="Points Redemption",font=ctk.CTkFont(size=18, weight="bold"))
         title_label.pack(pady=(20, 10))
         
         # Welcome message
-        welcome_label = ctk.CTkLabel(
-            redemption_window,
-            text=f"Welcome back, {customer_name}!",
-            font=ctk.CTkFont(size=14)
-        )
+        welcome_label = ctk.CTkLabel(redemption_window,text=f"Welcome back, {customer_name}!",font=ctk.CTkFont(size=14))
         welcome_label.pack(pady=5)
         
         # Points info
-        points_label = ctk.CTkLabel(
-            redemption_window,
-            text=f"You have {customer_points} points",
-            font=ctk.CTkFont(size=13)
-        )
+        points_label = ctk.CTkLabel(redemption_window,text=f"You have {customer_points} points",font=ctk.CTkFont(size=13))
         points_label.pack(pady=5)
         
-        earn_label = ctk.CTkLabel(
-            redemption_window,
-            text=f"You will earn {points_to_earn} points from this purchase",
-            font=ctk.CTkFont(size=13)
-        )
+        earn_label = ctk.CTkLabel(redemption_window,text=f"You will earn {points_to_earn} points from this purchase",font=ctk.CTkFont(size=13))
         earn_label.pack(pady=5)
         
         # Redemption offer
-        redemption_label = ctk.CTkLabel(
-            redemption_window,
-            text=f"You can redeem {euros_available:.2f} euros discount",
-            font=ctk.CTkFont(size=14, weight="bold"),
-            text_color="green"
-        )
+        redemption_label = ctk.CTkLabel(redemption_window, text=f"You can redeem {euros_available_for_redemption:.2f} euros discount",font=ctk.CTkFont(size=14, weight="bold"),text_color="green")
         redemption_label.pack(pady=15)
         
-        # Question
-        question_label = ctk.CTkLabel(
-            redemption_window,
-            text="Do you want to redeem for discount?",
-            font=ctk.CTkFont(size=13)
-        )
+        # Question for redemption
+        question_label = ctk.CTkLabel(redemption_window, text="Do you want to redeem for discount?", font=ctk.CTkFont(size=13))         
         question_label.pack(pady=10)
         
-        # Buttons frame
+        # Buttons frame transparent to blend with parent
         button_frame = ctk.CTkFrame(redemption_window, fg_color="transparent")
         button_frame.pack(pady=20)
+
+        # Yes and No buttons, inside functions to handle button clicks
         
         def on_yes():
-            self.points_redeemed = customer_points
-            self.euros_discount = euros_available
+            self.points_redeemed = points_available_for_redemption
+            self.euros_discount = euros_available_for_redemption
             self.redemption_approved = True
             redemption_window.destroy()
         
@@ -1282,27 +1258,18 @@ class AppGUI(ctk.CTk):
             self.euros_discount = 0
             redemption_window.destroy()
         
-        yes_button = ctk.CTkButton(
-            button_frame,
-            text="Yes, Redeem",
-            command=on_yes,
-            width=120,
-            fg_color="green"
-        )
+        yes_button = ctk.CTkButton(button_frame,ext="Yes, Redeem",command=on_yes,width=120,fg_color="green")
         yes_button.pack(side="left", padx=10)
         
-        no_button = ctk.CTkButton(
-            button_frame,
-            text="No, Thanks",
-            command=on_no,
-            width=120
-        )
+        no_button = ctk.CTkButton(button_frame,text="No, Thanks",command=on_no,width=120,fg_color="red")
         no_button.pack(side="left", padx=10)
         
         # Wait for window to close
         self.wait_window(redemption_window)
 
     def _on_non_auto_option_selected(self, mode):
+        '''Handle selection of non-automated fuel purchase mode (fill, liters, euros)'''
+
         # Set the selected mode
         self.non_auto_mode = mode
         
@@ -1652,6 +1619,8 @@ class AppGUI(ctk.CTk):
 
     def _continue_store_purchase(self):
         '''Go to store payment frame with selected items'''
+
+        # check if at least one item was selected
         if not self.selected_store_items:
             messagebox.showwarning("No Items", "Please select at least one item.")
             return
@@ -1663,6 +1632,8 @@ class AppGUI(ctk.CTk):
 
     def _build_store_payment_frame(self):
         '''Store payment frame showing total, payment method, and points options'''
+
+        # Clear previous widgets if any
         for widget in self.store_payment_frame.winfo_children():
             widget.destroy()
 
@@ -1675,23 +1646,18 @@ class AppGUI(ctk.CTk):
         self.store_payment_frame.grid_rowconfigure(6, weight=0)  # Bottom buttons
         self.store_payment_frame.grid_columnconfigure(0, weight=1)
 
-        # Display station name at the top (if station is selected)
-        if hasattr(self, 'current_customer_station'):
-            station_info = dbop.get_admin_station_info(self.current_customer_station)
-            station_name = station_info.get('name', 'Unknown Station') if station_info else 'Unknown Station'
-            station_label = ctk.CTkLabel(
-                self.store_payment_frame, 
-                text=station_name,
-                font=ctk.CTkFont(size=16, weight="bold")
-            )
-            station_label.grid(row=0, column=0, padx=20, pady=(20, 5))
+        # Display station name at the top 
+        station_info = dbop.get_admin_station_info(self.current_customer_station)
+        station_name = station_info.get('name', 'Unknown Station') if station_info else 'Unknown Station'
+        station_label = ctk.CTkLabel(self.store_payment_frame, text=station_name,font=ctk.CTkFont(size=16, weight="bold"))
+        station_label.grid(row=0, column=0, padx=20, pady=(20, 5))
 
         # Title
         title = ctk.CTkLabel(self.store_payment_frame, text="Store Payment", font=ctk.CTkFont(size=18, weight="bold"))
         title.grid(row=1, column=0, padx=20, pady=(5, 10))
 
         # Total amount section
-        total_frame = ctk.CTkFrame(self.store_payment_frame, fg_color="transparent")
+        total_frame = ctk.CTkFrame(self.store_payment_frame, fg_color="transparent") # transparent to blend with parent
         total_frame.grid(row=2, column=0, padx=20, pady=10, sticky="ew")
         total_frame.grid_columnconfigure(0, weight=0)
         total_frame.grid_columnconfigure(1, weight=1)
@@ -1699,16 +1665,11 @@ class AppGUI(ctk.CTk):
         total_label = ctk.CTkLabel(total_frame, text="Total Amount:", font=ctk.CTkFont(size=14))
         total_label.grid(row=0, column=0, padx=(0, 20), sticky="e")
 
-        total_amount_label = ctk.CTkLabel(
-            total_frame,
-            text=f"€{self.store_total_cost:.2f}",
-            font=ctk.CTkFont(size=16, weight="bold"),
-            text_color="green"
-        )
+        total_amount_label = ctk.CTkLabel(total_frame,text=f"€{self.store_total_cost:.2f}",font=ctk.CTkFont(size=16, weight="bold"),text_color="green")
         total_amount_label.grid(row=0, column=1, sticky="w")
 
         # Payment method section
-        payment_frame = ctk.CTkFrame(self.store_payment_frame, fg_color="transparent")
+        payment_frame = ctk.CTkFrame(self.store_payment_frame, fg_color="transparent") # transparent to blend with parent
         payment_frame.grid(row=3, column=0, padx=20, pady=15, sticky="ew")
         payment_frame.grid_columnconfigure(0, weight=0)
         payment_frame.grid_columnconfigure(1, weight=1)
@@ -1716,12 +1677,8 @@ class AppGUI(ctk.CTk):
         payment_label = ctk.CTkLabel(payment_frame, text="Payment Method:", font=ctk.CTkFont(size=14))
         payment_label.grid(row=0, column=0, padx=(0, 20), sticky="e")
 
-        self.store_payment_method = ctk.CTkComboBox(
-            payment_frame,
-            values=["Credit Card", "Debit Card", "Cash", "Mobile Payment"],
-            state="readonly"
-        )
-        self.store_payment_method.set("Credit Card")
+        self.store_payment_method = ctk.CTkComboBox(payment_frame,values=["Credit Card", "Cash"],state="readonly")
+        self.store_payment_method.set("Credit Card") # default value
         self.store_payment_method.grid(row=0, column=1, sticky="w", padx=(0, 20))
 
         # Points options section
@@ -1730,18 +1687,10 @@ class AppGUI(ctk.CTk):
         points_frame.grid_columnconfigure(0, weight=1)
         points_frame.grid_columnconfigure(1, weight=1)
 
-        btn_add_points = ctk.CTkButton(
-            points_frame,
-            text="Add Points",
-            command=lambda: (self._build_add_points_frame(self.store_payment_frame), self.show_frame(self.add_points_frame))
-        )
+        btn_add_points = ctk.CTkButton(points_frame,text="Add Points",command=lambda: (self._build_add_points_frame(self.store_payment_frame), self.show_frame(self.add_points_frame)))
         btn_add_points.grid(row=0, column=0, padx=(0, 10), sticky="ew")
 
-        btn_shell_go = ctk.CTkButton(
-            points_frame,
-            text="Register in Shell Go+",
-            command=lambda: (self._build_shell_go_registration_frame(), self.show_frame(self.shell_go_frame))
-        )
+        btn_shell_go = ctk.CTkButton(points_frame,text="Register in Shell Go+",command=lambda: (self._build_shell_go_registration_frame(), self.show_frame(self.shell_go_frame)))
         btn_shell_go.grid(row=0, column=1, padx=(10, 0), sticky="ew")
 
         # Bottom buttons
@@ -1750,46 +1699,37 @@ class AppGUI(ctk.CTk):
         bottom_frame.grid_columnconfigure(0, weight=1)
         bottom_frame.grid_columnconfigure(1, weight=1)
 
-        btn_back = ctk.CTkButton(
-            bottom_frame,
-            text="Back",
-            command=lambda: self.show_frame(self.store_frame)
-        )
+        btn_back = ctk.CTkButton(bottom_frame,text="Back",command=lambda: self.show_frame(self.store_frame))
         btn_back.grid(row=0, column=0, padx=(0, 10), sticky="ew")
 
-        btn_confirm = ctk.CTkButton(
-            bottom_frame,
-            text="Confirm Purchase",
-            command=self._confirm_store_purchase
-        )
+        btn_confirm = ctk.CTkButton(bottom_frame,text="Confirm Purchase",command=self._confirm_store_purchase)
         btn_confirm.grid(row=0, column=1, padx=(10, 0), sticky="ew")
 
     def _confirm_store_purchase(self):
         '''Confirm store purchase and complete transaction'''
-        from datetime import datetime
-        
-        payment_method = self.store_payment_method.get()
+    
+        payment_method = self.store_payment_method.get() # get selected payment method
         
         # Save transaction to database
         trans_date = datetime.now().timestamp()
-        amount_of_money = self.store_total_cost
+        amount_of_money = self.store_total_cost # money that customer is paying
         
         # Apply points discount if redeemed
-        if hasattr(self, 'euros_discount') and self.euros_discount > 0:
-            amount_of_money = max(0, amount_of_money - self.euros_discount)
+        if self.euros_discount > 0:
+            amount_of_money = max(0, amount_of_money - self.euros_discount) 
         
-        # Calculate points: 1 point per euro + 2 bonus points (only if customer has provided card)
-        if hasattr(self, 'customer_has_card') and self.customer_has_card:
-            if amount_of_money > 0:
-                total_points = int(amount_of_money) + 2
+        # Calculate points: 1 point per euro (only if customer has provided card number)
+        if self.customer_has_card:
+            if amount_of_money > 0: # checks if money was actually spent
+                total_points = int(amount_of_money)
             else:
                 total_points = 0
-            for_cust_id = getattr(self, 'customer_id_for_points', None)
+            for_cust_id = self.customer_id_for_points # set up key for transaction
         else:
             total_points = 0
             for_cust_id = None  # Anonymous customer
         
-        for_station_id = self.current_customer_station
+        for_station_id = self.current_customer_station # set up key for transaction
         
         try:
             trans_id = dbop.insert_transaction(trans_date, amount_of_money, total_points, for_cust_id, payment_method, for_station_id)
@@ -1798,17 +1738,16 @@ class AppGUI(ctk.CTk):
             return
         
         # Update customer points if they provided card and earned points
-        if total_points > 0 and hasattr(self, 'customer_id_for_points'):
+        if total_points > 0:
             dbop.update_customer_points(self.customer_id_for_points, total_points)
         
         # Redeem points if applicable
-        if hasattr(self, 'redemption_approved') and self.redemption_approved and hasattr(self, 'customer_id_for_points'):
+        if self.redemption_approved:
             dbop.redeem_points(self.customer_id_for_points, self.points_redeemed)
         
         # Show success message with amount and discount info
         message = f"Payment is successful!\n\nItems Purchased:"
         
-        # Debug: verify items dictionary structure
         total_items_count = 0
         for item_name, item_data in self.selected_store_items.items():
             quantity = item_data.get('quantity', 1)
@@ -1820,7 +1759,7 @@ class AppGUI(ctk.CTk):
         message += f"\n\nSubtotal (original): €{self.store_total_cost:.2f}"
         message += f"\nTotal items selected: {total_items_count}"
         message += f"\n\nTotal Amount Paid: €{amount_of_money:.2f}"
-        if hasattr(self, 'euros_discount') and self.euros_discount > 0:
+        if self.euros_discount > 0:
             message += f"\nPoints Discount: €{self.euros_discount:.2f}"
         messagebox.showinfo("Payment Successful!", message)
         
@@ -1832,7 +1771,6 @@ class AppGUI(ctk.CTk):
 
     def _build_transactions_frame(self):
         '''Display all transactions from the database'''
-        from datetime import datetime
         
         for widget in self.transactions_frame.winfo_children():
             widget.destroy()
@@ -1850,10 +1788,7 @@ class AppGUI(ctk.CTk):
         transactions = dbop.get_all_transactions()
 
         # Scrollable frame for transactions
-        scrollable_trans_frame = ctk.CTkScrollableFrame(
-            self.transactions_frame,
-            fg_color=MAIN_FRAME_COLOUR
-        )
+        scrollable_trans_frame = ctk.CTkScrollableFrame(self.transactions_frame,fg_color=MAIN_FRAME_COLOUR)
         scrollable_trans_frame.grid(row=1, column=0, padx=20, pady=10, sticky="nsew")
         scrollable_trans_frame.grid_columnconfigure(0, weight=1)
 
@@ -1864,33 +1799,19 @@ class AppGUI(ctk.CTk):
                 # Convert timestamp to readable date
                 trans_datetime = datetime.fromtimestamp(trans_date).strftime("%Y-%m-%d %H:%M:%S") if trans_date else "N/A"
                 
-                # Build customer info with name if available
-                if for_cust_id and fname and lname:
-                    cust_info = f"Customer: {fname} {lname} (ID: {for_cust_id})"
-                elif for_cust_id:
-                    cust_info = f"Customer ID: {for_cust_id}"
+                # Build customer info and include anonymous case
+                if for_cust_id:
+                    cust_info = f"Customer: {fname} {lname} (Customer ID: {for_cust_id})"
                 else:
-                    cust_info = "Anonymous"
+                    cust_info = "Anonymous\n"
                 
-                station_info = f"Station: {station_name} (ID: {for_station_id})" if station_name else f"Station ID: {for_station_id}"
-                trans_info = (
-                    f"ID: {trans_id} | Date: {trans_datetime} | Amount: €{amount_of_money:.2f} | "
-                    f"Points: {total_points} | {cust_info} | {station_info} | Payment: {payment_method}"
-                )
+                station_info = f"Station: {station_name} (station ID: {for_station_id})" 
+                trans_info = (f"Transaction ID: {trans_id} | Date: {trans_datetime} | Amount: {amount_of_money:.2f} € | "f"Points: {total_points} \n {cust_info} \n {station_info} \n Payment: {payment_method}")
                 
-                trans_label = ctk.CTkLabel(
-                    scrollable_trans_frame,
-                    text=trans_info,
-                    font=ctk.CTkFont(size=11),
-                    justify="left"
-                )
+                trans_label = ctk.CTkLabel(scrollable_trans_frame,text=trans_info,font=ctk.CTkFont(size=11),justify="left")
                 trans_label.grid(row=i, column=0, sticky="ew", padx=10, pady=5)
         else:
-            no_trans_label = ctk.CTkLabel(
-                scrollable_trans_frame,
-                text="No transactions found.",
-                font=ctk.CTkFont(size=12)
-            )
+            no_trans_label = ctk.CTkLabel(scrollable_trans_frame,text="No transactions found.",font=ctk.CTkFont(size=12))
             no_trans_label.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
 
         # Back button
@@ -1899,6 +1820,7 @@ class AppGUI(ctk.CTk):
 
     def _build_shell_go_customers_frame(self):
         '''Display all Shell Go+ customers with their points'''
+
         for widget in self.shell_go_customers_frame.winfo_children():
             widget.destroy()
 
@@ -1912,13 +1834,10 @@ class AppGUI(ctk.CTk):
         title.grid(row=0, column=0, padx=20, pady=(20, 10))
 
         # Get all points customers
-        customers = dbop.get_all_points_customers()
+        customers = dbop.get_all_customers_with_points()
 
         # Scrollable frame for customers
-        scrollable_cust_frame = ctk.CTkScrollableFrame(
-            self.shell_go_customers_frame,
-            fg_color=MAIN_FRAME_COLOUR
-        )
+        scrollable_cust_frame = ctk.CTkScrollableFrame(self.shell_go_customers_frame,fg_color=MAIN_FRAME_COLOUR)
         scrollable_cust_frame.grid(row=1, column=0, padx=20, pady=10, sticky="nsew")
         scrollable_cust_frame.grid_columnconfigure(0, weight=1)
 
@@ -1927,26 +1846,15 @@ class AppGUI(ctk.CTk):
                 customer_id, fname, lname, points, card_number = customer
                 
                 # Build customer name
-                full_name = f"{fname} {lname}".strip() if (fname or lname) else "Unknown"
-                points = points if points else 0
-                card_num_display = card_number if card_number else "N/A"
+                full_name = f"{fname} {lname}".strip() 
                 
                 # Build customer info button with card number
-                cust_info = f"Card: {card_num_display} | Name: {full_name} | Points: {points}"
+                cust_info = f"Card: {card_number} | Name: {full_name} | Points: {points}"
                 
-                cust_button = ctk.CTkButton(
-                    scrollable_cust_frame,
-                    text=cust_info,
-                    font=ctk.CTkFont(size=12),
-                    command=lambda cid=customer_id: self._show_customer_details(cid)
-                )
+                cust_button = ctk.CTkButton(scrollable_cust_frame,text=cust_info,font=ctk.CTkFont(size=12),command=lambda cid=customer_id: self._show_customer_details(cid))
                 cust_button.grid(row=i, column=0, sticky="ew", padx=10, pady=5)
-        else:
-            no_cust_label = ctk.CTkLabel(
-                scrollable_cust_frame,
-                text="No Shell Go+ customers found.",
-                font=ctk.CTkFont(size=12)
-            )
+        else: # if there's no customers found
+            no_cust_label = ctk.CTkLabel(scrollable_cust_frame,text="No Shell Go+ customers found.", font=ctk.CTkFont(size=12))
             no_cust_label.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
 
         # Back button
@@ -1955,6 +1863,7 @@ class AppGUI(ctk.CTk):
 
     def _show_customer_details(self, customer_id):
         '''Display detailed customer information in a frame'''
+
         customer = dbop.get_customer_details(customer_id)
         
         if not customer:
@@ -1971,67 +1880,45 @@ class AppGUI(ctk.CTk):
         self.customer_details_frame.grid_columnconfigure(0, weight=1)
 
         # Title
-        full_name = f"{customer.get('fname', '')} {customer.get('lname', '')}".strip()
-        title = ctk.CTkLabel(
-            self.customer_details_frame,
-            text=f"Customer Details - {full_name}",
-            font=ctk.CTkFont(size=18, weight="bold")
-        )
+        full_name = f"{customer.get('fname')} {customer.get('lname')}".strip() 
+        title = ctk.CTkLabel(self.customer_details_frame, text=f"Customer Details - {full_name}", font=ctk.CTkFont(size=18, weight="bold"))
         title.grid(row=0, column=0, padx=20, pady=(20, 10))
 
         # Scrollable frame for details
-        scrollable_details = ctk.CTkScrollableFrame(
-            self.customer_details_frame,
-            fg_color=MAIN_FRAME_COLOUR
-        )
+        scrollable_details = ctk.CTkScrollableFrame(self.customer_details_frame, fg_color=MAIN_FRAME_COLOUR)
         scrollable_details.grid(row=1, column=0, padx=20, pady=10, sticky="nsew")
         scrollable_details.grid_columnconfigure(0, weight=0)
         scrollable_details.grid_columnconfigure(1, weight=1)
 
-        # Helper function to add detail rows
-        def add_detail_row(row_num, label, value):
-            label_widget = ctk.CTkLabel(
-                scrollable_details,
-                text=f"{label}:",
-                font=ctk.CTkFont(size=12),
-                justify="left",
-                text_color="black"
-            )
-            label_widget.grid(row=row_num, column=0, sticky="w", padx=(10, 20), pady=5)
-
-            value_str = str(value) if value is not None else "N/A"
-            value_widget = ctk.CTkLabel(
-                scrollable_details,
-                text=value_str,
-                font=ctk.CTkFont(size=12),
-                justify="left",
-                text_color="black"
-            )
-            value_widget.grid(row=row_num, column=1, sticky="w", padx=(20, 10), pady=5)
+        # Customer details data
+        points = customer.get('points', 0) 
+        details = [
+            ("Customer ID", customer.get('customer_id', 'N/A')),
+            ("Name", full_name),
+            ("Card Number", customer.get('card_number', 'N/A')),
+            ("Points", points),
+            ("Address", customer.get('address', 'N/A')),
+            ("Delivery Address", customer.get('delivery_address', 'N/A')),
+            ("Phone", customer.get('phone_number', 'N/A')),
+            ("Email", customer.get('email', 'N/A')),
+            ("Tax ID", customer.get('tax_id', 'N/A')),
+            ("Payment Type", customer.get('payment_type', 'N/A')),
+            ("Company Name", customer.get('company_name', 'N/A')),
+            ("Fuel Card", customer.get('fuel_card', 'N/A')),
+            ("Anonymous", customer.get('anonymous', 'N/A')),
+        ]
 
         # Add all customer details
-        points = customer.get('points', 0) or 0
-        
-        add_detail_row(0, "Customer ID", customer.get('customer_id', 'N/A'))
-        add_detail_row(1, "Name", full_name)
-        add_detail_row(2, "Card Number", customer.get('card_number', 'N/A'))
-        add_detail_row(3, "Points", points)
-        add_detail_row(4, "Address", customer.get('address', 'N/A'))
-        add_detail_row(5, "Delivery Address", customer.get('delivery_address', 'N/A'))
-        add_detail_row(6, "Phone", customer.get('phone_number', 'N/A'))
-        add_detail_row(7, "Email", customer.get('email', 'N/A'))
-        add_detail_row(8, "Tax ID", customer.get('tax_id', 'N/A'))
-        add_detail_row(9, "Payment Type", customer.get('payment_type', 'N/A'))
-        add_detail_row(10, "Company Name", customer.get('company_name', 'N/A'))
-        add_detail_row(11, "Fuel Card", customer.get('fuel_card', 'N/A'))
-        add_detail_row(12, "Anonymous", customer.get('anonymous', 'N/A'))
+        for row_num, (label, value) in enumerate(details):
+            label_widget = ctk.CTkLabel(scrollable_details,text=f"{label}:",font=ctk.CTkFont(size=12), justify="center",text_color="black")
+            label_widget.grid(row=row_num, column=0, sticky="w", padx=(10, 20), pady=5)
+
+            value_str = str(value) 
+            value_widget = ctk.CTkLabel(scrollable_details,text=value_str,font=ctk.CTkFont(size=12),justify="left",text_color="black")
+            value_widget.grid(row=row_num, column=1, sticky="w", padx=(20, 10), pady=5)
 
         # Back button
-        btn_back = ctk.CTkButton(
-            self.customer_details_frame,
-            text="Back",
-            command=lambda: self.show_frame(self.shell_go_customers_frame)
-        )
+        btn_back = ctk.CTkButton(self.customer_details_frame,text="Back",command=lambda: self.show_frame(self.shell_go_customers_frame))
         btn_back.grid(row=2, column=0, padx=20, pady=20, sticky="se")
 
         # Show the frame

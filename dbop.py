@@ -122,7 +122,9 @@ CREATE TABLE `STATION_PRODUCT` (
     `name` TEXT NOT NULL,
     `points` INTEGER NOT NULL,
     `for_prod_id` INTEGER NOT NULL,
+    `for_prod_price` INTEGER NOT NULL,
     FOREIGN KEY(`for_prod_id`) REFERENCES `PRODUCT`(`product_id`) ON DELETE CASCADE
+    FOREIGN KEY(`for_prod_price`) REFERENCES `PRODUCT_PRICE`(`prod_id`) ON DELETE CASCADE
 );
 CREATE TABLE IF NOT EXISTS `POINT_SYSTEM` (
     `customer_id` integer primary key NOT NULL UNIQUE,
@@ -785,10 +787,11 @@ def get_all_transactions():
     '''Retrieve all transactions from the database with station and customer information'''
     with _connect() as conn:
         cursor = conn.cursor()
+        # left join for customer to include anonymous transactions
         cursor.execute(
             "SELECT t.trans_id, t.trans_date, t.amount_of_money, t.total_points, t.for_cust_id, t.payment_method, t.for_station_id, s.name, c.fname, c.lname "
             "FROM `TRANSACTION` t "
-            "LEFT JOIN `STATION` s ON t.for_station_id = s.station_id "
+            "JOIN `STATION` s ON t.for_station_id = s.station_id "
             "LEFT JOIN `CUSTOMER` c ON t.for_cust_id = c.customer_id "
             "ORDER BY t.trans_date DESC"
         )
@@ -871,9 +874,7 @@ def get_customer_name(customer_id):
     with _connect() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT fname, lname FROM `CUSTOMER` WHERE customer_id = ?",
-            (customer_id,)
-        )
+            "SELECT fname, lname FROM `CUSTOMER` WHERE customer_id = ?",(customer_id,))
         row = cursor.fetchone()
         if row:
             fname = row[0] if row[0] else ""
@@ -881,13 +882,13 @@ def get_customer_name(customer_id):
             return f"{fname} {lname}".strip()
         return "Unknown"
 
-def get_all_points_customers():
+def get_all_customers_with_points():
     '''Get all customers with their points and card numbers from POINT_SYSTEM'''
     with _connect() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT ps.customer_id, c.fname, c.lname, ps.points, ps.card_number FROM `POINT_SYSTEM` ps "
-            "LEFT JOIN `CUSTOMER` c ON ps.customer_id = c.customer_id "
+            "SELECT ps.customer_id, c.fname, c.lname, ps.points, ps.card_number " 
+            "FROM `POINT_SYSTEM` ps JOIN `CUSTOMER` c ON ps.customer_id = c.customer_id "
             "ORDER BY ps.customer_id"
         )
         rows = cursor.fetchall()
@@ -898,8 +899,9 @@ def get_customer_by_card_number(card_number):
     with _connect() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT ps.customer_id, c.fname, c.lname, ps.points, ps.card_number FROM `POINT_SYSTEM` ps "
-            "LEFT JOIN `CUSTOMER` c ON ps.customer_id = c.customer_id "
+            "SELECT ps.customer_id, c.fname, c.lname, ps.points, ps.card_number "
+            "FROM `POINT_SYSTEM` ps "
+            "JOIN `CUSTOMER` c ON ps.customer_id = c.customer_id "
             "WHERE ps.card_number = ?",
             (card_number,)
         )
@@ -935,6 +937,34 @@ def deduct_fuel_from_tank(tank_id, liters_purchased):
 
         new_quantity = round(current_qty - liters_purchased, 2)
         cursor.execute("UPDATE TANK SET current_quantity = ? WHERE tank_id = ?",(new_quantity, tank_id))
+        conn.commit()
+        return True
+
+def deduct_store_product_stock(station_id, product_name, quantity_purchased):
+    '''Deduct stock of a store product at a specific station.'''
+
+    with _connect() as conn:
+        cursor = conn.cursor()
+        # Get for_product_id from STATION_PRODUCT to update PRODUCT_PRICE
+        cursor.execute("SELECT for_prod_id FROM STATION_PRODUCT WHERE name = ?;", (product_name,))
+        row = cursor.fetchone()
+        if not row:
+            return False
+        product_id = row[0]
+
+        # Get current stock from PRODUCT_PRICE
+        cursor.execute("SELECT stock FROM PRODUCT_PRICE WHERE for_station_id = ? AND for_prod_id = ?;", (station_id, product_id))
+        row = cursor.fetchone()
+        if not row:
+            return False
+        current_stock = row[0] or 0
+
+        # Ensure enough stock is available
+        if current_stock < quantity_purchased:
+            return False
+
+        new_stock = current_stock - quantity_purchased
+        cursor.execute("UPDATE PRODUCT_PRICE SET stock = ? WHERE for_station_id = ? AND for_prod_id = ?;", (new_stock, station_id, product_id))
         conn.commit()
         return True
 
