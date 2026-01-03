@@ -1,7 +1,7 @@
 import customtkinter as ctk
 import dbop
 import entities
-import datetime
+from datetime import datetime
 import random
 from PIL import Image
 from tkinter import messagebox
@@ -594,6 +594,7 @@ class AppGUI(ctk.CTk):
         btn_back.pack(side="bottom", anchor="e", pady=20, padx=20)
 
     def _build_payment_method_frame(self):
+        '''Payment Method Frame for Non-Automated stations'''
         # Clear previous widgets
         for widget in self.payment_method_frame.winfo_children():
             widget.destroy()
@@ -646,10 +647,10 @@ class AppGUI(ctk.CTk):
         btn_fuel_card = ctk.CTkButton(self.payment_method_frame, text="Fuel Card", command=lambda: self.confirm_non_auto_purchase("Fuel Card", amount))
         btn_fuel_card.pack(pady=8, padx=20)
 
-        btn_add_points = ctk.CTkButton(self.payment_method_frame, text="Add Points", command=self.btn_go_to_add_points)
+        btn_add_points = ctk.CTkButton(self.payment_method_frame, text="Add Points", command=lambda: (self._build_add_points_frame(), self.show_frame(self.add_points_frame)))
         btn_add_points.pack(pady=(20, 8), padx=20)
         
-        btn_register_shell = ctk.CTkButton(self.payment_method_frame, text="Register in Shell go+", command=self.btn_register_to_shell_go)
+        btn_register_shell = ctk.CTkButton(self.payment_method_frame, text="Register in Shell go+", command=lambda: (self._build_shell_go_registration_frame(), self.show_frame(self.shell_go_frame)))
         btn_register_shell.pack(pady=8, padx=20)
         
         # Back button
@@ -657,20 +658,18 @@ class AppGUI(ctk.CTk):
         btn_back.pack(side="bottom", anchor="e", padx=20, pady=20)
 
     def _build_payment_method_frame_automated(self):
+        '''Payment Method Frame for Automated stations'''
+
         # Clear previous widgets
         for widget in self.payment_method_frame.winfo_children():
             widget.destroy()
 
         # Display station name at the top
-        if hasattr(self, 'current_customer_station'):
-            station_info = dbop.get_admin_station_info(self.current_customer_station)
-            station_name = station_info.get('name', 'Unknown Station') if station_info else 'Unknown Station'
-            station_label = ctk.CTkLabel(
-                self.payment_method_frame, 
-                text=station_name,
-                font=ctk.CTkFont(size=16, weight="bold")
-            )
-            station_label.pack(pady=(20, 5))
+        
+        station_info = dbop.get_admin_station_info(self.current_customer_station)
+        station_name = station_info.get('name', 'Unknown Station') 
+        station_label = ctk.CTkLabel(self.payment_method_frame, text=station_name, font=ctk.CTkFont(size=16, weight="bold"))
+        station_label.pack(pady=(20, 5))
 
         # Centered vertical layout using pack
         title = ctk.CTkLabel(self.payment_method_frame, text="Select Payment Method", font=ctk.CTkFont(size=18, weight="bold"))
@@ -685,7 +684,7 @@ class AppGUI(ctk.CTk):
         btn_fuel_card = ctk.CTkButton(self.payment_method_frame, text="Fuel Card", command=lambda: self.select_payment_method("Fuel Card"))
         btn_fuel_card.pack(pady=8, padx=20)
 
-        btn_add_points = ctk.CTkButton(self.payment_method_frame, text="Add Points", command=self.btn_go_to_add_points)
+        btn_add_points = ctk.CTkButton(self.payment_method_frame, text="Add Points", command = lambda: (self._build_add_points_frame(), self.show_frame(self.add_points_frame)))
         btn_add_points.pack(pady=(20, 8), padx=20)
 
         # Back button
@@ -693,6 +692,8 @@ class AppGUI(ctk.CTk):
         btn_back.pack(side="bottom", anchor="e", padx=20, pady=20)
 
     def select_payment_method(self, payment_method):
+        '''only for automated stations'''
+        
         self.selected_payment_method = payment_method
         self._build_auto_euro_amount_selection_frame()
         self.show_frame(self.fuel_purchase_frame)
@@ -746,13 +747,8 @@ class AppGUI(ctk.CTk):
         btn_back = ctk.CTkButton(buttons_frame, text="Back", command=lambda: self.show_frame(self.fill_up_frame))
         btn_back.grid(row=0, column=0, padx=(0, 10), sticky="ew")
 
-        btn_continue = ctk.CTkButton(buttons_frame, text="Continue", command=self._continue_from_fill_summary) # continue to payment method (builds payment method frame)
+        btn_continue = ctk.CTkButton(buttons_frame, text="Continue", command= lambda: (self._build_payment_method_frame(), self.show_frame(self.payment_method_frame))) # continue to payment method 
         btn_continue.grid(row=0, column=1, padx=(10, 0), sticky="ew")
-
-    def _continue_from_fill_summary(self):
-        '''Continue from fill summary to payment method selection'''
-        self._build_payment_method_frame()
-        self.show_frame(self.payment_method_frame)
 
     def _build_auto_euro_amount_selection_frame(self):
         '''Fuel Purchase Frame for automated stations only (euros selection with fixed buttons)'''
@@ -1028,59 +1024,59 @@ class AppGUI(ctk.CTk):
         btn_back = ctk.CTkButton(self.manual_fill_frame, text="Back", command=lambda: self.show_frame(self.customer_station_frame))
         btn_back.pack(side="bottom", anchor="e", padx=20, pady=20)
     
-    def _build_shell_go_registration_frame(self, back_frame=None):
+    def _build_shell_go_registration_frame(self):
+        '''Build the Shell go+ registration frame'''
+
+        # Clear previous widgets if any
         for widget in self.shell_go_frame.winfo_children():
             widget.destroy()
 
         title = ctk.CTkLabel(self.shell_go_frame, text="Shell go+ Registration", font=ctk.CTkFont(size=18, weight="bold"))
         title.pack(pady=(20, 10), padx=20)
 
+        # Content frame for form fields, transparent to blend with parent
         content = ctk.CTkFrame(self.shell_go_frame, fg_color="transparent")
         content.pack(expand=True)
         content.grid_columnconfigure(0, weight=0)
         content.grid_columnconfigure(1, weight=1)
 
-        fields = [
-            ("Name", "name"),
-            ("Lastname", "lastname"),
-            ("Address", "address"),
-            ("Phone number", "phone"),
-            ("Email", "email"),
-            ("AFM", "afm"),
-        ]
+        # (Label, Entry) pairs for registration
+        fields = [("Name", "name"),("Lastname", "lastname"),("Address", "address"),("Phone number", "phone"),("Email", "email"),("AFM", "afm"),]
 
+        # Store entry widgets in a dictionary
+        self.shellgo_entries = {} # {'name': name_entry_widget, ...}
         for i, (label_text, key) in enumerate(fields):
-            lbl = ctk.CTkLabel(content, text=label_text)
+            lbl = ctk.CTkLabel(content, text=label_text) 
             lbl.grid(row=i, column=0, padx=10, pady=8, sticky="e")
             entry = ctk.CTkEntry(content, placeholder_text=label_text)
             entry.grid(row=i, column=1, padx=10, pady=8, sticky="w")
-            setattr(self, f"shellgo_{key}_entry", entry)
+            self.shellgo_entries[key] = entry
 
         btn_submit = ctk.CTkButton(self.shell_go_frame, text="Submit", command=self._submit_shell_go_registration)
         btn_submit.pack(pady=10, padx=20)
 
-        # Determine where to go back to based on context
-        if back_frame is None:
-            back_frame = self.store_payment_frame if hasattr(self, 'store_total_cost') and self.store_total_cost > 0 else self.payment_method_frame
-        btn_back = ctk.CTkButton(self.shell_go_frame, text="Back", command=lambda: self.show_frame(back_frame))
+        # Back button 
+        btn_back = ctk.CTkButton(self.shell_go_frame, text="Back", command=lambda: self.show_frame(self.store_payment_frame))
         btn_back.pack(side="bottom", anchor="e", pady=20, padx=20)
 
     def _submit_shell_go_registration(self):
-        keys = ["name", "lastname", "address", "phone", "email", "afm"]
-        values = {k: getattr(self, f"shellgo_{k}_entry").get().strip() for k in keys if hasattr(self, f"shellgo_{k}_entry")}
-        if all(values.get(k) for k in keys):
+        '''Handle Shell go+ registration submission when button is clicked'''
+
+        keys_to_be_included = ["name", "lastname", "address", "phone", "email", "afm"]
+        if all(self.shellgo_entries[k].get().strip() for k in keys_to_be_included): # checks if all fields are filled from user
+            
             # Generate a random 7-digit Shell Go+ card number
             card_number = self.generate_card_number()
             
             try:
                 # Create customer in database
                 customer_id = dbop.insert_customer(
-                    fname=values.get("name"),
-                    lname=values.get("lastname"),
-                    address=values.get("address"),
-                    phone_number=values.get("phone"),
-                    email=values.get("email"),
-                    tax_id=values.get("afm"),
+                    fname=self.shellgo_entries['name'].get().strip(),
+                    lname=self.shellgo_entries['lastname'].get().strip(),
+                    address=self.shellgo_entries['address'].get().strip(),
+                    phone_number=self.shellgo_entries['phone'].get().strip(),
+                    email=self.shellgo_entries['email'].get().strip(),
+                    tax_id=self.shellgo_entries['afm'].get().strip(),
                     payment_type="Shell Go+",
                     delivery_address=None,
                     fuel_card=None,
@@ -1088,7 +1084,7 @@ class AppGUI(ctk.CTk):
                     card_number=card_number
                 )
                 
-                if customer_id:
+                if customer_id: # if insertion was successful
                     # Store customer info for current session
                     self.customer_id_for_points = customer_id
                     self.customer_has_card = True
@@ -1105,12 +1101,9 @@ class AppGUI(ctk.CTk):
                     messagebox.showerror("Shell go+", "Registration failed. Could not create customer record.")
             except Exception as e:
                 print(f"Registration error: {e}")
-                import traceback
-                traceback.print_exc()
-                messagebox.showerror("Shell go+", f"Registration failed with error:\n{str(e)}")
             
             # Return to the appropriate frame based on context
-            back_frame = self.store_payment_frame if hasattr(self, 'store_total_cost') and self.store_total_cost > 0 else self.payment_method_frame
+            back_frame = self.store_payment_frame if self.store_total_cost > 0 else self.payment_method_frame
             self.show_frame(back_frame)
         else:
             messagebox.showwarning("Shell go+", "Please fill in all fields.")
@@ -1407,55 +1400,33 @@ class AppGUI(ctk.CTk):
 
     def generate_card_number(self):
         """Generate a random 7-digit card number"""
-        return str(random.randint(0, 9999999)).zfill(7)
+        return str(random.randint(0, 9999999)).zfill(7) # Ensure it's 7 digits by padding leading zeros if needed
 
     def show_card_window(self, card_number, customer_name):
-        """Create and display a persistent card window showing card number and customer name"""
-        # Close existing card window if any
-        if self.card_window is not None and self.card_window.winfo_exists():
-            self.card_window.destroy()
+        """Create and display a card window showing card number and customer name. Only closes when application closes."""
 
         # Create new card window
         self.card_window = ctk.CTkToplevel(self)
         self.card_window.title("Shell Go+ Card Number")
         self.card_window.geometry("400x200")
-        self.card_window.attributes('-topmost', True)  # Keep window on top
         
         # Remove close button by overriding protocol
-        self.card_window.protocol("WM_DELETE_WINDOW", lambda: None)
+        self.card_window.protocol("WM_DELETE_WINDOW", lambda: None) # Disable close button
         
         # Title
-        title = ctk.CTkLabel(
-            self.card_window,
-            text="Your Shell Go+ Card Number",
-            font=ctk.CTkFont(size=16, weight="bold")
-        )
+        title = ctk.CTkLabel(self.card_window,text="Your Shell Go+ Card Number", font=ctk.CTkFont(size=16, weight="bold"))
         title.pack(pady=(20, 10))
         
         # Customer name
-        name_label = ctk.CTkLabel(
-            self.card_window,
-            text=f"Customer: {customer_name}",
-            font=ctk.CTkFont(size=12)
-        )
+        name_label = ctk.CTkLabel(self.card_window, text=f"Customer: {customer_name}", font=ctk.CTkFont(size=12))
         name_label.pack(pady=5)
         
-        # Card number in large font
-        card_display = ctk.CTkLabel(
-            self.card_window,
-            text=card_number,
-            font=ctk.CTkFont(size=24, weight="bold"),
-            text_color="#00AA00"
-        )
+        # Card number in large font, with green color 
+        card_display = ctk.CTkLabel(self.card_window,text=card_number, font=ctk.CTkFont(size=24, weight="bold"),text_color="#00AA00")
         card_display.pack(pady=20)
         
         # Information text
-        info_label = ctk.CTkLabel(
-            self.card_window,
-            text="This window will close when you close the application",
-            font=ctk.CTkFont(size=10),
-            text_color="gray"
-        )
+        info_label = ctk.CTkLabel(self.card_window,text="This window will close when you close the application",font=ctk.CTkFont(size=10),text_color="gray")
         info_label.pack(pady=10)
 
     #BUTTON FUNCTIONS
@@ -1505,6 +1476,7 @@ class AppGUI(ctk.CTk):
             self.show_frame(self.fill_up_frame)
 
     def btn_go_to_store_func(self):
+        '''Go to store frame from customer station frame'''
         self.selected_store_items = {}  # Track selected items: {product_name: {'price': price, 'quantity': count}}
         self._build_store_frame()
         self.show_frame(self.store_frame)
@@ -1519,8 +1491,9 @@ class AppGUI(ctk.CTk):
         # Get station info and find which pump is being used
         station_info = dbop.get_admin_station_info(self.current_customer_station)
         
-        # Find the pump_id for this fuel selection, the button is available only if there is an active pump and sufficient fuel in tank
-        self.selected_pump_id,self.selected_tank_id = dbop.get_pump_and_tank_for_fuel(self.current_customer_station, fuel.get('prod_id'))
+        # Find the pump_id for this fuel selection using fuel_type from station_info
+        fuel_type = fuel.get('fuel_type', '')
+        self.selected_pump_id, self.selected_tank_id = self.find_pump_and_tank_for_fuel(fuel_type, station_info)
         
         # Check if station is automated
         is_automated = station_info.get('automated', False)
@@ -1550,18 +1523,13 @@ class AppGUI(ctk.CTk):
                 self._build_fuel_purchase_frame()
                 self.show_frame(self.fuel_purchase_frame)
 
-    def btn_go_to_add_points(self):
-        self._build_add_points_frame()
-        self.show_frame(self.add_points_frame)
-
-    def btn_register_to_shell_go(self):
-        self._build_shell_go_registration_frame()
-        self.show_frame(self.shell_go_frame)
 
     def _build_store_frame(self):
         '''Store frame with category buttons and product selection'''
         for widget in self.store_frame.winfo_children():
             widget.destroy()
+
+        # configure frame layout
 
         self.store_frame.grid_rowconfigure(0, weight=0)  # Station name
         self.store_frame.grid_rowconfigure(1, weight=0)  # Title row
@@ -1586,20 +1554,24 @@ class AppGUI(ctk.CTk):
         category_frame.grid(row=2, column=0, padx=20, pady=10, sticky="ew")
         category_frame.grid_columnconfigure(0, weight=1)
 
-        categories = ["Snacks", "Beverages", "Car Care", "Vaping", "Personal Care", "Convenience Items"]
+        # Fetch store products for this station from DB
+        self.store_products_by_category = dbop.get_store_products_for_station(self.current_customer_station)
+        categories = list(self.store_products_by_category.keys())
         self.category_buttons = {}
-        for i, category in enumerate(categories):
-            btn = ctk.CTkButton(category_frame, text=category, command=lambda c=category: self._show_store_products(c),height=30)
+
+        for i, category in enumerate(categories): # create a button for each category and place them next to each other
+            # when button gets clicked it shows all the corresponding products in the scrollable frame below
+            btn = ctk.CTkButton(category_frame, text=category, command=lambda c=category: self._show_store_products(c), height=30) 
             btn.grid(row=0, column=i, padx=5, sticky="ew")
-            category_frame.grid_columnconfigure(i, weight=1)
-            self.category_buttons[category] = btn
+            category_frame.grid_columnconfigure(i, weight=1) # make all buttons expand equally
+            self.category_buttons[category] = btn # {category_name: button_widget}
 
         # Products scrollable frame
         self.store_products_frame = ctk.CTkScrollableFrame(self.store_frame, fg_color=MAIN_FRAME_COLOUR,label_text="Products")
         self.store_products_frame.grid(row=3, column=0, padx=20, pady=10, sticky="nsew")
         self.store_products_frame.grid_columnconfigure(0, weight=1)
 
-        # Bottom buttons frame
+        # Bottom buttons frame (for back and continue)
         bottom_frame = ctk.CTkFrame(self.store_frame, fg_color="transparent")
         bottom_frame.grid(row=4, column=0, padx=20, pady=20, sticky="ew")
         bottom_frame.grid_columnconfigure(0, weight=1)
@@ -1612,7 +1584,8 @@ class AppGUI(ctk.CTk):
         btn_continue.grid(row=0, column=1, padx=(10, 0), sticky="ew")
 
         # Show first category by default
-        self._show_store_products("Snacks")
+        self._show_store_products(categories[0])
+
 
     def _show_store_products(self, category):
         '''Display products for the selected category in the scrollable frame'''
@@ -1623,77 +1596,59 @@ class AppGUI(ctk.CTk):
         for widget in self.store_products_frame.winfo_children():
             widget.destroy()
 
-        # Map categories to product name patterns
-        category_map = {
-            "Snacks": ["Κριτσίνια", "Πατατάκια", "Κρακεράκια", "Καλαμάκια", "Ξηροί Καρποί", 
-                      "Σοκολάτα", "Καραμέλες", "Ενεργειακή Μπάρα", "Μπάρα Δημητριακών", "Σοκολατάκια"],
-            "Beverages": ["Νερό Εμφιαλωμένο", "Αναψυκτικό", "Ενεργειακό Ποτό", "Λεμονάδα", "Τσάι ",
-                         "Χυμός Φυσικός", "Καφές", "Αναψυκτικό Χωρίς Ζάχαρη", "Γάλα", "Ποτό Βιταμινών"],
-            "Car Care": ["Λάδι Κινητήρα", "Υγρό Υαλοκαθαριστήρων", "Αντλία Ελαστικού", "Αρωματικό Αυτοκινήτου",
-                        "Πανί Καθαρισμού", "Λάστιχα Υαλοκαθαριστήρων", "Ξύστρα Πάγου", "Βάση Κινητού",
-                        "Φορτιστής USB", "Καλώδια Μπαταρίας"],
-            "Vaping": ["Τσιγάρα", "Πούρο", "Αναπτήρας", "Υγρό Κάπνισμα", "Χαρτάκια"],
-            "Personal Care": ["Αντισηπτικό Χεριών", "Υγρά Μαντηλάκια", "Παυσίπονο", "Γυαλιά Ηλίου", "Βάλσαμο Χειλιών"],
-            "Convenience Items": ["Καλώδιο Φόρτισης", "Ακουστικά", "Ομπρέλα", "Φακός", "Μπαταρίες ΑΑ",
-                                 "Θερμό", "Αντιηλιακό", "Κιτ Πρώτων Βοηθειών", "Κολλητική Ταινία", "Λάστιχα Ασφάλειας"]
-        }
 
-        products = category_map.get(category, []) # retrieves list of products for the selected category
-         # Get store products dictionary once
-        store_products = dbop.generate_store_products_dict()
+        # Get products for this category
+        category_products = self.store_products_by_category.get(category, {}) # {product_name: {price: , points: , stock: }}
 
-        for product_name in products:
-            if product_name in store_products:
-                price, points = store_products[product_name]
-                quantity = self.selected_store_items.get(product_name, {}).get('quantity', 0)
+        if not category_products:
+            empty_label = ctk.CTkLabel(self.store_products_frame, text="No products available", font=ctk.CTkFont(size=12))
+            empty_label.grid(row=0, column=0, sticky="w", padx=10, pady=5)
+            return
 
-                # Product row frame
-                product_row = ctk.CTkFrame(self.store_products_frame, fg_color="transparent")
-                product_row.grid(row=products.index(product_name), column=0, sticky="ew", padx=10, pady=5)
-                product_row.grid_columnconfigure(0, weight=1)
-                product_row.grid_columnconfigure(1, weight=0)
-                product_row.grid_columnconfigure(2, weight=0)
+        for idx, (product_name, product_data) in enumerate(category_products.items()):
+            price = product_data['price']
+            points = product_data['points']
+            stock = product_data['stock']
+            
+            # Get selected quantity if any
+            # selected_store_items is filled in _add_product_quantity function and holds the selected products and their quantities
 
-                # Product info (name and price)
-                product_info = f"{product_name} - €{price:.2f}"
-                product_label = ctk.CTkLabel(
-                    product_row, 
-                    text=product_info,
-                    font=ctk.CTkFont(size=12)
-                )
-                product_label.grid(row=0, column=0, sticky="w")
+            quantity = self.selected_store_items.get(product_name, {}).get('quantity', 0) # selected_store_items = {product_name: {'price': price, 'quantity': count}}
 
-                # Quantity display/button - only show if quantity > 0
-                if quantity > 0:
-                    qty_label = ctk.CTkLabel(
-                        product_row,
-                        text=f"({quantity})",
-                        font=ctk.CTkFont(size=12, weight="bold"),
-                        text_color="green"
-                    )
-                    qty_label.grid(row=0, column=1, padx=(10, 0))
+            # Product row frame, transparent to blend with parent frame
+            product_row = ctk.CTkFrame(self.store_products_frame, fg_color="transparent")
+            product_row.grid(row=idx, column=0, sticky="ew", padx=10, pady=5)
+            product_row.grid_columnconfigure(0, weight=1)
+            product_row.grid_columnconfigure(1, weight=0)
+            product_row.grid_columnconfigure(2, weight=0)
 
-                # Select button
-                select_btn = ctk.CTkButton(
-                    product_row,
-                    text="+",
-                    width=40,
-                    command=lambda pn=product_name, p=price: self._add_product_quantity(pn, p)
-                )
-                select_btn.grid(row=0, column=2, padx=(10, 0))
+            # Product info (name, price, and stock)
+            product_info = f"{product_name} - {price:.2f} € (Stock: {stock})"
+            product_label = ctk.CTkLabel(product_row, text=product_info, font=ctk.CTkFont(size=12))
+            product_label.grid(row=0, column=0, sticky="w")
+
+            # Quantity display/button - only show if quantity > 0
+            if quantity > 0:
+                qty_label = ctk.CTkLabel(product_row, text=f"({quantity})", font=ctk.CTkFont(size=12, weight="bold"),text_color="green") # shows the quantity of each product, if selected
+                qty_label.grid(row=0, column=1, padx=(10, 0))
+
+            # Select button
+            select_btn = ctk.CTkButton(product_row, text="+", width=40, command=lambda pn=product_name, p=price: self._add_product_quantity(pn, p)) # + button to add one more of this product
+            select_btn.grid(row=0, column=2, padx=(10, 0))
 
     def _add_product_quantity(self, product_name, price):
         '''Add one to the product quantity'''
-        if product_name in self.selected_store_items:
+
+        if product_name in self.selected_store_items: # check if item already exists in selected items, so that we can increment quantity
             # Item already exists, increment quantity
             self.selected_store_items[product_name]['quantity'] += 1
         else:
-            # New item, create entry with quantity 1
+            # if it doesn't exist already, it's a new item, so we initialize quantity to 1
             self.selected_store_items[product_name] = {'price': price, 'quantity': 1}
 
-        # Refresh the current category display
-        if hasattr(self, 'current_store_category'):
-            self._show_store_products(self.current_store_category)
+        # Return to the same category view to refresh quantities in _show_store_products function
+        self._show_store_products(self.current_store_category)
+
 
     def _continue_store_purchase(self):
         '''Go to store payment frame with selected items'''
@@ -1778,14 +1733,14 @@ class AppGUI(ctk.CTk):
         btn_add_points = ctk.CTkButton(
             points_frame,
             text="Add Points",
-            command=self.btn_go_to_add_points
+            command=lambda: (self._build_add_points_frame(self.store_payment_frame), self.show_frame(self.add_points_frame))
         )
         btn_add_points.grid(row=0, column=0, padx=(0, 10), sticky="ew")
 
         btn_shell_go = ctk.CTkButton(
             points_frame,
             text="Register in Shell Go+",
-            command=self.btn_register_to_shell_go
+            command=lambda: (self._build_shell_go_registration_frame(), self.show_frame(self.shell_go_frame))
         )
         btn_shell_go.grid(row=0, column=1, padx=(10, 0), sticky="ew")
 
