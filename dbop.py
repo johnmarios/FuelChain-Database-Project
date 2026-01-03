@@ -15,6 +15,7 @@ DROP TABLE IF EXISTS `POINT_SYSTEM`;
 DROP TABLE IF EXISTS `TRANSACTION`;
 DROP TABLE IF EXISTS `STATION`;
 DROP TABLE IF EXISTS `CUSTOMER`;
+
 CREATE TABLE IF NOT EXISTS `STATION` (
     `station_id` integer primary key NOT NULL UNIQUE,
     `location` TEXT NOT NULL,
@@ -26,6 +27,7 @@ CREATE TABLE IF NOT EXISTS `STATION` (
 );
 DROP TABLE IF EXISTS `PUMP`;
 DROP TABLE IF EXISTS `TANK`;
+
 CREATE TABLE `TANK` (
     `tank_id` integer primary key NOT NULL UNIQUE,
     `last_fill_up` REAL NOT NULL,
@@ -57,17 +59,17 @@ CREATE TABLE `PUMP` (
 );
 CREATE TABLE IF NOT EXISTS `CUSTOMER` (
     `customer_id` integer primary key NOT NULL UNIQUE,
-    `fname` TEXT NOT NULL,
-    `lname` TEXT NOT NULL,
-    `address` TEXT NOT NULL,
+    `fname` TEXT,
+    `lname` TEXT,
+    `address` TEXT,
     `phone_number` INTEGER NOT NULL,
-    `email` TEXT NOT NULL,
+    `email` TEXT,
     `tax_id` INTEGER NOT NULL,
-    `payment_type` TEXT NOT NULL,
+    `payment_type` TEXT,
     `anonymous` REAL NOT NULL,
-    `delivery_address` TEXT NOT NULL,
+    `delivery_address` TEXT,
     `fuel_card` INTEGER NOT NULL,
-    `company_name` TEXT NOT NULL,
+    `company_name` TEXT,
     `for_system_points_id` INTEGER,
     FOREIGN KEY(`for_system_points_id`) REFERENCES `POINT_SYSTEM`(`customer_id`) ON DELETE CASCADE
 );
@@ -99,10 +101,11 @@ DROP TABLE IF EXISTS `PRODUCT_PRICE`;
 CREATE TABLE `PRODUCT_PRICE` (
     `prod_id` integer primary key NOT NULL UNIQUE,
     `price` REAL NOT NULL,
+    `stock` INTEGER,
     `for_station_id` INTEGER NOT NULL,
-    `for_fuel_id` INTEGER NOT NULL,
+    `for_prod_id` INTEGER NOT NULL,
     FOREIGN KEY(`for_station_id`) REFERENCES `STATION`(`station_id`) ON DELETE CASCADE,
-    FOREIGN KEY(`for_fuel_id`) REFERENCES `FUEL`(`prod_id`) ON DELETE CASCADE
+    FOREIGN KEY(`for_prod_id`) REFERENCES `PRODUCT`(`product_id`) ON DELETE CASCADE
 );
 CREATE TABLE IF NOT EXISTS `SUPPLY` (
     `for_pump_id` integer NOT NULL UNIQUE,
@@ -116,6 +119,8 @@ DROP TABLE IF EXISTS `STATION_PRODUCT`;
 CREATE TABLE `STATION_PRODUCT` (
     `prod_id` integer primary key UNIQUE,
     `prod_type` TEXT NOT NULL,
+    `name` TEXT NOT NULL,
+    `points` INTEGER NOT NULL,
     `for_prod_id` INTEGER NOT NULL,
     FOREIGN KEY(`for_prod_id`) REFERENCES `PRODUCT`(`product_id`) ON DELETE CASCADE
 );
@@ -218,24 +223,31 @@ def db_init(seed_stations: int = 10):
         # Re-enable foreign key constraints
         cur.execute("PRAGMA foreign_keys = ON;")
 
-        # PRODUCTS - 8 fuels + 50 store items
+        # PRODUCTS - 8 fuels + store items derived from generator
         fuel_id_list = []
-        fuel_count = 8 
-        store_items_count = 50
+        fuel_count = 8
+
+        # Build store catalog once to drive PRODUCT and STATION_PRODUCT inserts
+        store_catalog = generate_store_products_dict() # {category: {product_name: {price, points, stock}}}
+        store_items_list = []  # list of (category, name, points) to insert into STATION_PRODUCT
+        for category, products in store_catalog.items():
+            for product_name, product_data in products.items():
+                store_items_list.append((category, product_name, product_data['points']))
+
+        store_items_count = len(store_items_list)
+
         for pid in range(fuel_count): #pid: product_id
             prod_type = "fuel"
             fuel_id_list.append(pid + 1)
-            cur.execute(
-                "INSERT INTO PRODUCT(product_id, prod_type) VALUES (?, ?)",
-                (pid + 1, prod_type),
-            )
+            cur.execute("INSERT INTO PRODUCT(product_id, prod_type) VALUES (?, ?)",(pid + 1, prod_type),)
 
-        for pid in range(store_items_count): #pid: product_id
-            prod_type = "store_items"
-            cur.execute(
-                "INSERT INTO PRODUCT(product_id, prod_type) VALUES (?, ?)",
-                (pid + fuel_count + 1, prod_type),
-            )
+        # Map store items to product IDs and insert into PRODUCT and STATION_PRODUCT
+        store_product_map = {}  # key: (category, name) -> {product_id, points}, important to keep track of product_ids for PRODUCT_PRICE inserts later (stock, price vary per station)
+        for idx, (category, product_name, points) in enumerate(store_items_list, start=1):
+            product_id = fuel_count + idx # taking into account fuel products which are inserted first
+            store_product_map[(category, product_name)] = {"product_id": product_id, "points": points} 
+            cur.execute("INSERT INTO PRODUCT(product_id, prod_type) VALUES (?, ?)",(product_id, "store_items"),)
+            cur.execute("INSERT INTO STATION_PRODUCT(prod_id, prod_type, name, points, for_prod_id) VALUES (?, ?, ?, ?, ?)",(product_id, category, product_name, points, product_id),)
 
         # FUEL
         fuel_dict = generate_fuels_dict()
@@ -365,8 +377,8 @@ def db_init(seed_stations: int = 10):
 
             last_fill_up = fake.date_between(start_date='-1y', end_date='today').isoformat()
 
-        # PUMPS 
-        # u95 1-2, u98 1, u100 0-1, diesel 1-2, vp_diesel: 1, autogas: 0-1, heating oil 0-1 -> total 4-9 pumps per station so it depends on the number of tanks of each station
+            # PUMPS 
+            # u95 1-2, u98 1, u100 0-1, diesel 1-2, vp_diesel: 1, autogas: 0-1, heating oil 0-1 -> total 4-9 pumps per station so it depends on the number of tanks of each station
             pump_id = 0
             for_tank_id = 0
             pump_id_list_station = [i for i in range(pump_id_holder + 1, pump_id_holder + tan_num + 1)] #per station
@@ -388,7 +400,7 @@ def db_init(seed_stations: int = 10):
                 pump_number = pump_number_station[i]
                 for_tank_id = tank_id
 
-        # -------------------INSERT TANKS AND PUMPS
+                 # -------------------INSERT TANKS AND PUMPS
 
                 cur.execute(
                     "INSERT INTO `TANK`(tank_id, last_fill_up, capacity, current_quantity, min_fuel_quantity, for_station_id, for_fuel_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -399,14 +411,34 @@ def db_init(seed_stations: int = 10):
                     (pump_id, is_active, pump_number, for_tank_id),
                 )
 
-        #------------------- INSERT PRODUCT_PRICE entries for this station's fuels
+            #------------------- INSERT PRODUCT_PRICE entries for this station's fuels (stock = NULL for fuels)
             for fuel_id, price in fuel_prices_for_station.items():
                 product_price_id += 1
                 cur.execute(
-                    "INSERT INTO PRODUCT_PRICE(prod_id, price, for_station_id, for_fuel_id) VALUES (?, ?, ?, ?)",
-                    (product_price_id, price, for_station, fuel_id),
-                )
+                    "INSERT INTO PRODUCT_PRICE(prod_id, price, stock, for_station_id, for_prod_id) VALUES (?, ?, NULL, ?, ?)",(product_price_id, price, for_station, fuel_id),
+                    )
 
+            #------------------- INSERT PRODUCT_PRICE entries for this station's store products (if has_store)
+            # Check if this station has a store
+            cur.execute("SELECT has_store FROM STATION WHERE station_id = ?", (for_station,))
+            row_has_store = cur.fetchone()
+            has_store = row_has_store[0] if row_has_store else False
+            
+            if has_store:
+                # Generate store products for this station
+                store_products = generate_store_products_dict() # {category: {product_name: {price, points, stock}}}, i want different prices and stock per station and that's the reason for re-calling the function
+                
+                # Insert each product into PRODUCT_PRICE with stock
+                for category, products in store_products.items():
+                    for product_name, product_data in products.items():
+                        product_price_id += 1 # continues from fuel product_price_id
+                        price = product_data['price']
+                        stock = product_data['stock']
+                        product_info = store_product_map.get((category, product_name))
+
+                        cur.execute(
+                            "INSERT INTO PRODUCT_PRICE(prod_id, price, stock, for_station_id, for_prod_id) VALUES (?, ?, ?, ?, ?)",(product_price_id, price, stock, for_station, product_info["product_id"]),
+                        )
 
         # EMPLOYEES : 1-2 per station if is non automated | 0 if is automated
         emp_id = 0
@@ -432,114 +464,134 @@ def db_init(seed_stations: int = 10):
 
 
 def generate_fuels_dict():
-        fake = Faker(locale="el_GR")
-        #low,high for price per liter/ points per liter (low,high,points) -- points are independent from fuel price per liter
-        fuel_types = ["V-Power Racing, FuelSave Unleaded 95","FuelSave Diesel","Autogas", "V-Power 98", "V-Power Diesel", "Heating Oil","Household LPG"]
-        fuel_type_price_per_liter = {
-            "FuelSave Unleaded 95": (1.60, 1.85, 1),
-            "V-Power 98":  (1.75, 2.05, 2),
-            "V-Power Racing":   (1.85, 2.25, 4),
+    fake = Faker(locale="el_GR")
+    #low,high for price per liter/ points per liter (low,high,points) -- points are independent from fuel price per liter
+    fuel_types = ["V-Power Racing, FuelSave Unleaded 95","FuelSave Diesel","Autogas", "V-Power 98", "V-Power Diesel", "Heating Oil","Household LPG"]
+    fuel_type_price_per_liter = {
+        "FuelSave Unleaded 95": (1.60, 1.85, 1),
+        "V-Power 98":  (1.75, 2.05, 2),
+        "V-Power Racing":   (1.85, 2.25, 4),
 
-            "FuelSave Diesel":     (1.45, 1.70, 1),
-            "V-Power Diesel":      (1.55, 1.85, 2),
+        "FuelSave Diesel":     (1.45, 1.70, 1),
+        "V-Power Diesel":      (1.55, 1.85, 2),
 
-            "Autogas":             (0.85, 1.05, 1),
-            "Heating Oil":         (1.20, 1.45, 0.5),
-            "Household LPG":       (0.90, 1.15, 0.5) #πωλείται σε φιάλες / δεν μπαίνει σε αντλία 
-        }
-        fuels_dict = {}   
-        for fid, (ft, (low, high, points)) in enumerate(fuel_type_price_per_liter.items(), start=1): #fid: fuel_id->1, 2, 3, ...
-            price_per_liter = round(fake.random.uniform(low, high), 2) # 2 decimal places
-            points_per_liter = points
-            fuels_dict[ft] = [price_per_liter, points_per_liter]  #for each fuel category, needed for each station
-        return fuels_dict
+        "Autogas":             (0.85, 1.05, 1),
+        "Heating Oil":         (1.20, 1.45, 0.5),
+        "Household LPG":       (0.90, 1.15, 0.5) #πωλείται σε φιάλες / δεν μπαίνει σε αντλία 
+    }
+    fuels_dict = {}   
+    for fid, (ft, (low, high, points)) in enumerate(fuel_type_price_per_liter.items(), start=1): #fid: fuel_id->1, 2, 3, ...
+        price_per_liter = round(fake.random.uniform(low, high), 2) # 2 decimal places
+        points_per_liter = points
+        fuels_dict[ft] = [price_per_liter, points_per_liter]  #for each fuel category, needed for each station
+    return fuels_dict
 
-# Cache for store products to ensure consistent pricing
-_store_products_cache = None
 
 def generate_store_products_dict():
-        '''Generate store products dict once and cache it'''
-        global _store_products_cache
-        
-        # Return cached version if already generated
-        if _store_products_cache is not None:
-            return _store_products_cache
-        
-        #product id, product type, cost, points total(based on cost)
+    '''Generate store products dict '''
+    
+    #product id, product type, cost, points total(based on cost), number of items in stock
+    min_items_snacks = 5
+    max_items_snacks = 20
 
-        fake = Faker(locale="el_GR")
+    min_items_beverages = 5
+    max_items_beverages = 20    
 
-        store_items = {
-            # Snacks & Chips (10 items)
-            "Κριτσίνια": [2.5, 3.5, 20],
-            "Πατατάκια": [2.8, 3.8, 20],
-            "Κρακεράκια": [2.2, 3.2, 20],
-            "Καλαμάκια": [1.8, 2.8, 20],
-            "Ξηροί Καρποί": [3.5, 4.9, 20],
-            "Σοκολάτα": [1.2, 2.0, 20],
-            "Καραμέλες": [2.0, 3.0, 20],
-            "Ενεργειακή Μπάρα": [2.5, 3.5, 20],
-            "Μπάρα Δημητριακών": [1.8, 2.5, 20],
-            "Σοκολατάκια": [1.5, 2.3, 20],
-            
-            # Beverages (10 items)
-            "Νερό Εμφιαλωμένο": [0.5, 0.5, 20],
-            "Αναψυκτικό": [1.8, 2.8, 20],
-            "Ενεργειακό Ποτό": [2.5, 3.5, 20],
-            "Λεμονάδα": [1.0, 1.8, 20],
-            "Τσάι ": [1.5, 2.5, 20],
-            "Χυμός Φυσικός": [1.2, 2.0, 20],
-            "Καφές": [2.0, 3.0, 20],
-            "Αναψυκτικό Χωρίς Ζάχαρη": [1.5, 2.5, 20],
-            "Γάλα": [2.2, 3.2, 20],
-            "Ποτό Βιταμινών": [2.0, 3.0, 20],
-            
-            # Car Care (10 items)
-            "Λάδι Κινητήρα": [12.0, 18.0, 0],
-            "Υγρό Υαλοκαθαριστήρων": [3.5, 5.5, 0],
-            "Αντλία Ελαστικού": [15.0, 22.0, 0],
-            "Αρωματικό Αυτοκινήτου": [2.5, 4.0, 0],
-            "Πανί Καθαρισμού": [3.0, 5.0, 0],
-            "Λάστιχα Υαλοκαθαριστήρων": [12.0, 18.0, 0],
-            "Ξύστρα Πάγου": [4.0, 6.5, 0],
-            "Βάση Κινητού": [8.0, 12.0, 0],
-            "Φορτιστής USB": [6.0, 10.0, 0],
-            "Καλώδια Μπαταρίας": [15.0, 23.0, 0],
-            
-            # Tobacco & Vaping (5 items)
-            "Τσιγάρα": [5.0, 8.0, 0],
-            "Πούρο": [4.0, 7.0, 0],
-            "Αναπτήρας": [1.0, 2.0, 0],
-            "Υγρό Κάπνισμα": [8.0, 12.0, 0],
-            "Χαρτάκια": [1.5, 2.5, 0],
-            
-            # Personal Care (5 items)
-            "Αντισηπτικό Χεριών": [2.0, 3.5, 0],
-            "Υγρά Μαντηλάκια": [2.5, 4.0, 0],
-            "Παυσίπονο": [4.0, 6.5, 0],
-            "Γυαλιά Ηλίου": [8.0, 14.0, 0],
-            "Βάλσαμο Χειλιών": [1.5, 2.8, 0],
-            
-            # Convenience Items (10 items)
-            "Καλώδιο Φόρτισης": [7.0, 12.0, 0],
-            "Ακουστικά": [10.0, 16.0, 0],
-            "Ομπρέλα": [6.0, 10.0, 0],
-            "Φακός": [8.0, 13.0, 0],
-            "Μπαταρίες ΑΑ": [4.0, 6.5, 0],
-            "Θερμό": [7.0, 11.0, 0],
-            "Αντιηλιακό": [6.0, 10.0, 0],
-            "Κιτ Πρώτων Βοηθειών": [12.0, 18.0, 0],
-            "Κολλητική Ταινία": [5.0, 8.0, 0],
-            "Λάστιχα Ασφάλειας": [4.0, 7.0, 0]
+    min_items_car_care = 3
+    max_items_car_care = 15
+
+    min_items_vaping = 2
+    max_items_vaping = 10
+
+    min_items_personal_care = 2
+    max_items_personal_care = 10
+
+    min_items_convenience = 5
+    max_items_convenience = 20        
+
+    fake = Faker(locale="el_GR")
+
+    #store_items = {product_category: {product_name: [cost_low, cost_high, points_total, min_items, max_items]}}
+    store_items = {
+        "Snacks": {
+            "Κριτσίνια": [2.5, 3.5, 20, min_items_snacks, max_items_snacks],
+            "Πατατάκια": [2.8, 3.8, 20, min_items_snacks, max_items_snacks],
+            "Κρακεράκια": [2.2, 3.2, 20, min_items_snacks, max_items_snacks],
+            "Καλαμάκια": [1.8, 2.8, 20, min_items_snacks, max_items_snacks],
+            "Ξηροί Καρποί": [3.5, 4.9, 20, min_items_snacks, max_items_snacks],
+            "Σοκολάτα": [1.2, 2.0, 20, min_items_snacks, max_items_snacks],
+            "Καραμέλες": [2.0, 3.0, 20, min_items_snacks, max_items_snacks],
+            "Ενεργειακή Μπάρα": [2.5, 3.5, 20, min_items_snacks, max_items_snacks],
+            "Μπάρα Δημητριακών": [1.8, 2.5, 20, min_items_snacks, max_items_snacks],
+            "Σοκολατάκια": [1.5, 2.3, 20, min_items_snacks, max_items_snacks]
+        },
+        "Beverages": {
+            "Νερό Εμφιαλωμένο": [0.5, 0.5, 20, min_items_beverages, max_items_beverages],
+            "Αναψυκτικό": [1.8, 2.8, 20, min_items_beverages, max_items_beverages],
+            "Ενεργειακό Ποτό": [2.5, 3.5, 20, min_items_beverages, max_items_beverages],
+            "Λεμονάδα": [1.0, 1.8, 20, min_items_beverages, max_items_beverages],
+            "Τσάι ": [1.5, 2.5, 20, min_items_beverages, max_items_beverages],
+            "Χυμός Φυσικός": [1.2, 2.0, 20, min_items_beverages, max_items_beverages],
+            "Καφές": [2.0, 3.0, 20, min_items_beverages, max_items_beverages],
+            "Αναψυκτικό Χωρίς Ζάχαρη": [1.5, 2.5, 20, min_items_beverages, max_items_beverages],
+            "Γάλα": [2.2, 3.2, 20, min_items_beverages, max_items_beverages],
+            "Ποτό Βιταμινών": [2.0, 3.0, 20, min_items_beverages, max_items_beverages]
+        },
+        "Car Care": {
+            "Λάδι Κινητήρα": [12.0, 18.0, 0, min_items_car_care, max_items_car_care],
+            "Υγρό Υαλοκαθαριστήρων": [3.5, 5.5, 0, min_items_car_care, max_items_car_care],
+            "Αντλία Ελαστικού": [15.0, 22.0, 0, min_items_car_care, max_items_car_care],
+            "Αρωματικό Αυτοκινήτου": [2.5, 4.0, 0, min_items_car_care, max_items_car_care],
+            "Πανί Καθαρισμού": [3.0, 5.0, 0, min_items_car_care, max_items_car_care],
+            "Λάστιχα Υαλοκαθαριστήρων": [12.0, 18.0, 0, min_items_car_care, max_items_car_care],
+            "Ξύστρα Πάγου": [4.0, 6.5, 0, min_items_car_care, max_items_car_care],
+            "Βάση Κινητού": [8.0, 12.0, 0, min_items_car_care, max_items_car_care],
+            "Φορτιστής USB": [6.0, 10.0, 0, min_items_car_care, max_items_car_care],
+            "Καλώδια Μπαταρίας": [15.0, 23.0, 0, min_items_car_care, max_items_car_care]
+        },
+        "Vaping": {
+            "Τσιγάρα": [5.0, 8.0, 0, min_items_vaping, max_items_vaping],
+            "Πούρο": [4.0, 7.0, 0, min_items_vaping, max_items_vaping],
+            "Αναπτήρας": [1.0, 2.0, 0, min_items_vaping, max_items_vaping],
+            "Υγρό Κάπνισμα": [8.0, 12.0, 0, min_items_vaping, max_items_vaping],
+            "Χαρτάκια": [1.5, 2.5, 0, min_items_vaping, max_items_vaping]
+        },
+        "Personal Care": {
+            "Αντισηπτικό Χεριών": [2.0, 3.5, 0, min_items_personal_care, max_items_personal_care],
+            "Υγρά Μαντηλάκια": [2.5, 4.0, 0, min_items_personal_care, max_items_personal_care],
+            "Παυσίπονο": [4.0, 6.5, 0, min_items_personal_care, max_items_personal_care],
+            "Γυαλιά Ηλίου": [8.0, 14.0, 0, min_items_personal_care, max_items_personal_care],
+            "Βάλσαμο Χειλιών": [1.5, 2.8, 0, min_items_personal_care, max_items_personal_care]
+        },
+        "Convenience Items": {
+            "Καλώδιο Φόρτισης": [7.0, 12.0, 0, min_items_convenience, max_items_convenience],
+            "Ακουστικά": [10.0, 16.0, 0, min_items_convenience, max_items_convenience],
+            "Ομπρέλα": [6.0, 10.0, 0, min_items_convenience, max_items_convenience],
+            "Φακός": [8.0, 13.0, 0, min_items_convenience, max_items_convenience],
+            "Μπαταρίες ΑΑ": [4.0, 6.5, 0, min_items_convenience, max_items_convenience],
+            "Θερμό": [7.0, 11.0, 0, min_items_convenience, max_items_convenience],
+            "Αντιηλιακό": [6.0, 10.0, 0, min_items_convenience, max_items_convenience],
+            "Κιτ Πρώτων Βοηθειών": [12.0, 18.0, 0, min_items_convenience, max_items_convenience],
+            "Κολλητική Ταινία": [5.0, 8.0, 0, min_items_convenience, max_items_convenience],
+            "Λάστιχα Ασφάλειας": [4.0, 7.0, 0, min_items_convenience, max_items_convenience]
+        },
+        "LPG Fuel Cylinders": {
+            "Φιάλη Υγραερίου 5kg": [25.0, 35.0, 0, 2, 10],
+            "Φιάλη Υγραερίου 10kg": [45.0, 60.0, 0, 2, 10],
+            "Φιάλη Υγραερίου 12kg": [50.0, 65.0, 0, 2, 10],
+            "Φιάλη Υγραερίου 24kg": [90.0, 120.0, 0, 1, 5]
         }
-        store_products_dict = {}   
-        for fid, (ft, (low, high, points)) in enumerate(store_items.items(), start=1): #fid: store_prod_id->1, 2, 3, ...
-            price = round(fake.random.uniform(low, high), 2) # 2 decimal places
-            store_products_dict[ft] = [price, points]  #for each fuel category, needed for each station
-        
-        # Cache the generated products
-        _store_products_cache = store_products_dict
-        return store_products_dict
+    }
+    
+    store_products_dict = {} # {category: {product_name: {price, points, stock}, ...}}
+    for category, products in store_items.items():
+        store_products_dict[category] = {}
+        for product_name, (low, high, points, min_stock, max_stock) in products.items():
+            price = round(fake.random.uniform(low, high), 2)
+            stock = random.randint(min_stock, max_stock)
+            store_products_dict[category][product_name] = {"price": price, "points": points, "stock": stock}
+    
+    return store_products_dict
 
 def generate_tanks_dict():
     tanks = {
@@ -651,7 +703,7 @@ def get_admin_station_info(station_id):
                 sql = f"""
                     SELECT f.prod_id, f.fuel_type, f.points_per_liter, f.for_prod_id, pp.price
                     FROM FUEL as f
-                    JOIN PRODUCT_PRICE as pp ON pp.for_fuel_id = f.prod_id AND pp.for_station_id = ?
+                    JOIN PRODUCT_PRICE as pp ON pp.for_prod_id = f.prod_id AND pp.for_station_id = ?
                     WHERE f.prod_id IN ({placeholders})
                 """
                 params = [station_id] + fuel_ids # list concatenation
@@ -684,6 +736,33 @@ def get_fuel_price(fuel_id):
         cursor.execute("SELECT price_per_liter FROM FUEL WHERE prod_id = ?;", (fuel_id,))
         row = cursor.fetchone()
         return row[0] if row else None
+
+
+def get_store_products_for_station(station_id):
+    '''Return store products for a station grouped by category.'''
+    with _connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT sp.prod_type, sp.name, sp.points, pp.price, pp.stock
+            FROM PRODUCT_PRICE AS pp
+            JOIN PRODUCT AS p ON p.product_id = pp.for_prod_id
+            JOIN STATION_PRODUCT AS sp ON sp.for_prod_id = p.product_id
+            WHERE pp.for_station_id = ? AND p.prod_type = 'store_items'
+            ORDER BY sp.prod_type, sp.name
+            """,
+            (station_id,),
+        )
+        rows = cursor.fetchall()
+
+    products = {}
+    for category, name, points, price, stock in rows:
+        products.setdefault(category, {})[name] = {
+            "price": price,
+            "points": points,
+            "stock": stock,
+        }
+    return products
     
 def station_name(station_id):
     with _connect() as conn:
@@ -718,10 +797,11 @@ def get_all_transactions():
 
 def insert_customer(fname=None, lname=None, address=None, phone_number=None, email=None, tax_id=None, payment_type=None, delivery_address=None, fuel_card=None, company_name=None, card_number=None):
     '''Insert a new customer and create a corresponding points record with card number'''
+    # phone, tax_id, fuel_card are NOT NULL INTEGER fields, provide defaults if needed
     with _connect() as conn:
         cursor = conn.cursor()
         try:
-            # Convert and provide defaults for NOT NULL fields
+
             # Phone number: extract digits and convert to int, default to 0
             phone_int = _digits_only(phone_number) if phone_number else 0
             
@@ -730,42 +810,23 @@ def insert_customer(fname=None, lname=None, address=None, phone_number=None, ema
             
             # Fuel card: convert to int, default to 0
             fuel_card_int = _digits_only(fuel_card) if fuel_card else 0
-            
-            # Provide defaults for TEXT NOT NULL fields
-            fname = fname if fname else ""
-            lname = lname if lname else ""
-            address = address if address else ""
-            email = email if email else ""
-            payment_type = payment_type if payment_type else ""
-            delivery_address = delivery_address if delivery_address else ""
-            company_name = company_name if company_name else ""
-            
+              
             # Insert customer with converted fields
-            cursor.execute(
-                "INSERT INTO `CUSTOMER` (fname, lname, address, phone_number, email, tax_id, payment_type, anonymous, delivery_address, fuel_card, company_name, for_system_points_id) "
+            cursor.execute("INSERT INTO `CUSTOMER` (fname, lname, address, phone_number, email, tax_id, payment_type, anonymous, delivery_address, fuel_card, company_name, for_system_points_id) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)",
-                (fname, lname, address, phone_int, email, tax_id_int, payment_type, 0, delivery_address, fuel_card_int, company_name)
-            )
-            customer_id = cursor.lastrowid
+                (fname, lname, address, phone_int, email, tax_id_int, payment_type, 0, delivery_address, fuel_card_int, company_name)) # from now on anonymous = 0 
+            customer_id = cursor.lastrowid # fetches the auto-generated customer_id
             
             # Create corresponding points record with card number
-            cursor.execute(
-                "INSERT INTO `POINT_SYSTEM` (customer_id, points, card_number) VALUES (?, ?, ?)",
-                (customer_id, 0, card_number if card_number else "")
-            )
+            cursor.execute("INSERT INTO `POINT_SYSTEM` (customer_id, points, card_number) VALUES (?, ?, ?)",(customer_id, 0, card_number))
             
             # Update customer's for_system_points_id
-            cursor.execute(
-                "UPDATE `CUSTOMER` SET for_system_points_id = ? WHERE customer_id = ?",
-                (customer_id, customer_id)
-            )
+            cursor.execute("UPDATE `CUSTOMER` SET for_system_points_id = ? WHERE customer_id = ?",(customer_id, customer_id))
             
             conn.commit()
             return customer_id
         except Exception as e:
-            import traceback
             print(f"Error inserting customer: {e}")
-            traceback.print_exc()
             return None
 
 def update_customer_points(customer_id, points_to_add):
