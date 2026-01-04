@@ -737,11 +737,11 @@ def get_store_products_for_station(station_id):
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT sp.prod_type, sp.name, sp.points, pp.price, pp.stock
-            FROM STATION_PRODUCT_INFO AS pp
-            JOIN PRODUCT AS p ON p.product_id = pp.for_prod_id
+            SELECT sp.prod_type, sp.name, sp.points, spi.price, spi.stock, spi.prod_id
+            FROM STATION_PRODUCT_INFO AS spi
+            JOIN PRODUCT AS p ON p.product_id = spi.for_prod_id
             JOIN STATION_PRODUCT AS sp ON sp.for_prod_id = p.product_id
-            WHERE pp.for_station_id = ? AND p.prod_type = 'store_items'
+            WHERE spi.for_station_id = ? AND p.prod_type = 'store_items'
             ORDER BY sp.prod_type, sp.name
             """,
             (station_id,),
@@ -749,11 +749,12 @@ def get_store_products_for_station(station_id):
         rows = cursor.fetchall()
 
     products = {}
-    for category, name, points, price, stock in rows:
+    for category, name, points, price, stock, prod_id in rows:
         products.setdefault(category, {})[name] = {
             "price": price,
             "points": points,
             "stock": stock,
+            "prod_id": prod_id,
         }
     return products
     
@@ -931,20 +932,14 @@ def deduct_fuel_from_tank(tank_id, liters_purchased):
         conn.commit()
         return True
 
-def deduct_store_product_stock(station_id, product_name, quantity_purchased):
-    '''Deduct stock of a store product at a specific station.'''
 
+def deduct_store_product_stock_by_id(prod_id, quantity_purchased):
+    '''Deduct stock of a store product using prod_id (STATION_PRODUCT_INFO primary key)'''
     with _connect() as conn:
         cursor = conn.cursor()
-        # Get for_product_id from STATION_PRODUCT to update STATION_PRODUCT_INFO
-        cursor.execute("SELECT for_prod_id FROM STATION_PRODUCT WHERE name = ?;", (product_name,))
-        row = cursor.fetchone()
-        if not row:
-            return False
-        product_id = row[0]
-
-        # Get current stock from STATION_PRODUCT_INFO
-        cursor.execute("SELECT stock FROM STATION_PRODUCT_INFO WHERE for_station_id = ? AND for_prod_id = ?;", (station_id, product_id))
+        
+        # Get current stock from STATION_PRODUCT_INFO using primary key
+        cursor.execute("SELECT stock FROM STATION_PRODUCT_INFO WHERE prod_id = ?;", (prod_id,))
         row = cursor.fetchone()
         if not row:
             return False
@@ -955,9 +950,29 @@ def deduct_store_product_stock(station_id, product_name, quantity_purchased):
             return False
 
         new_stock = current_stock - quantity_purchased
-        cursor.execute("UPDATE STATION_PRODUCT_INFO SET stock = ? WHERE for_station_id = ? AND for_prod_id = ?;", (new_stock, station_id, product_id))
+        cursor.execute("UPDATE STATION_PRODUCT_INFO SET stock = ? WHERE prod_id = ?;", (new_stock, prod_id))
         conn.commit()
         return True
+
+def get_store_product_info_by_id(prod_id):
+    '''Get store product information using STATION_PRODUCT_INFO.prod_id (primary key)
+    Returns: {name, price, stock} or None if not found'''
+    with _connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT sp.name, spi.price, spi.stock
+            FROM STATION_PRODUCT_INFO AS spi
+            JOIN PRODUCT AS p ON p.product_id = spi.for_prod_id
+            JOIN STATION_PRODUCT AS sp ON sp.for_prod_id = p.product_id
+            WHERE spi.prod_id = ? AND p.prod_type = 'store_items'
+            """,
+            (prod_id,)
+        )
+        row = cursor.fetchone()
+        if row:
+            return {'name': row[0],'price': row[1],'stock': row[2]}
+        return None
 
 def get_customer_details(customer_id):
     '''Get detailed customer information including points data'''

@@ -153,7 +153,6 @@ class AppGUI(ctk.CTk):
         self._build_customer_frame()
         self._build_admin_all_stations_frame()
         self._build_customer_all_stations_frame()
-        self._build_manual_fill_frame()
         #self._build_admin_station_frame()
         # _build_customer_station_frame() is called when station is selected in go_to_station_func()
 
@@ -983,6 +982,7 @@ class AppGUI(ctk.CTk):
         
         # Deduct fuel from tank
         dbop.deduct_fuel_from_tank(self.selected_tank_id, liters_purchased)
+
         
         # Show completion message with amount paid and discount info
         message = f"Thank you for your purchase!\n\nAmount Paid: €{amount_of_money:.2f}"
@@ -995,42 +995,6 @@ class AppGUI(ctk.CTk):
         
         self.show_frame(self.customer_station_frame)
 
-    def _build_manual_fill_frame(self):
-        # Clear previous widgets
-        for widget in self.manual_fill_frame.winfo_children():
-            widget.destroy()
-
-        # Basic layout
-        self.manual_fill_frame.grid_rowconfigure(0, weight=1)
-        self.manual_fill_frame.grid_columnconfigure(0, weight=1)
-
-        # Get station info
-        station_info = {}
-        try:
-            station_info = dbop.get_admin_station_info(self.current_customer_station) or {}
-        except Exception:
-            station_info = {}
-
-        name = station_info.get('name', 'Unknown station')
-        automated_text = "Automated" if station_info.get('automated') else "Non-Automated"
-        title_text = f"Station: {name}\nStatus: {automated_text}"
-        label = ctk.CTkLabel(self.manual_fill_frame, text=title_text, font=ctk.CTkFont(size=16, weight="bold"))
-        label.pack(pady=(20, 10))
-
-        msg = "This station is not automated. Please go to the attendant to request a fill-up."
-        msg_label = ctk.CTkLabel(self.manual_fill_frame, text=msg)
-        msg_label.pack(pady=(10, 20), padx=20)
-
-        # Optionally list employees/attendants
-        employees = station_info.get('employees') or []
-        if employees:
-            emp_text = "Attendants:\n" + "\n".join([f"{e['fname']} {e['lname']} (ID:{e['emp_id']})" for e in employees])
-            emp_label = ctk.CTkLabel(self.manual_fill_frame, text=emp_text)
-            emp_label.pack(pady=(10, 20), padx=20)
-
-        # Back button
-        btn_back = ctk.CTkButton(self.manual_fill_frame, text="Back", command=lambda: self.show_frame(self.customer_station_frame))
-        btn_back.pack(side="bottom", anchor="e", padx=20, pady=20)
     
     def _build_shell_go_registration_frame(self):
         '''Build the Shell go+ registration frame'''
@@ -1580,7 +1544,7 @@ class AppGUI(ctk.CTk):
 
 
         # Get products for this category
-        category_products = self.store_products_by_category.get(category, {}) # {product_name: {price: , points: , stock: }}
+        category_products = self.store_products_by_category.get(category, {}) # {product_name: {price: , points: , stock: , prod_id: }}
 
         if not category_products:
             empty_label = ctk.CTkLabel(self.store_products_frame, text="No products available", font=ctk.CTkFont(size=12))
@@ -1591,11 +1555,12 @@ class AppGUI(ctk.CTk):
             price = product_data['price']
             points = product_data['points']
             stock = product_data['stock']
+            prod_id = product_data['prod_id']
             
             # Get selected quantity if any
             # selected_store_items is filled in _add_product_quantity function and holds the selected products and their quantities
 
-            quantity = self.selected_store_items.get(product_name, {}).get('quantity', 0) # selected_store_items = {product_name: {'price': price, 'quantity': count}}
+            quantity = self.selected_store_items.get(product_name, {}).get('quantity', 0) # selected_store_items = {product_name: {'price': price, 'quantity': count, 'prod_id': prod_id}}
 
             # Product row frame, transparent to blend with parent frame
             product_row = ctk.CTkFrame(self.store_products_frame, fg_color="transparent")
@@ -1609,27 +1574,54 @@ class AppGUI(ctk.CTk):
             product_label = ctk.CTkLabel(product_row, text=product_info, font=ctk.CTkFont(size=12))
             product_label.grid(row=0, column=0, sticky="w")
 
-            # Quantity display/button - only show if quantity > 0
+            # Quantity display - create label always so it can be updated via lambda
+            qty_text = f"({quantity})" if quantity > 0 else ""
+            qty_label = ctk.CTkLabel(product_row, text=qty_text, font=ctk.CTkFont(size=12, weight="bold"), text_color="green") # quantity label updates when + button is clicked
             if quantity > 0:
-                qty_label = ctk.CTkLabel(product_row, text=f"({quantity})", font=ctk.CTkFont(size=12, weight="bold"),text_color="green") # shows the quantity of each product, if selected
                 qty_label.grid(row=0, column=1, padx=(10, 0))
 
             # Select button
-            select_btn = ctk.CTkButton(product_row, text="+", width=40, command=lambda pn=product_name, p=price: self._add_product_quantity(pn, p)) # + button to add one more of this product
+            select_btn = ctk.CTkButton(product_row, text="+", width=40, command=lambda pid=prod_id, pl=product_label, ql=qty_label, pn=product_name: self._add_product_quantity(pid, pl, ql, pn)) # + button to add one more of this product
             select_btn.grid(row=0, column=2, padx=(10, 0))
 
-    def _add_product_quantity(self, product_name, price):
-        '''Add one to the product quantity'''
+    def _add_product_quantity(self, prod_id, product_label, qty_label, product_name):
+        '''Add one to the product quantity using product ID and update both labels'''
+
+        # Get product details from database using prod_id
+        product_info = dbop.get_store_product_info_by_id(prod_id)
+        if not product_info:
+            messagebox.showerror("Error", "Product not found in database")
+            return
+        
+        price = product_info['price']
+        stock = product_info['stock']
+        
+        # Get current quantity selected
+        current_quantity = self.selected_store_items.get(product_name, {}).get('quantity', 0)
+        
+        # Check if there's enough stock for one more
+        if current_quantity >= stock:
+            messagebox.showwarning("Out of Stock", f"Cannot add more {product_name}. Maximum available stock: {stock}")
+            return
 
         if product_name in self.selected_store_items: # check if item already exists in selected items, so that we can increment quantity
             # Item already exists, increment quantity
             self.selected_store_items[product_name]['quantity'] += 1
         else:
             # if it doesn't exist already, it's a new item, so we initialize quantity to 1
-            self.selected_store_items[product_name] = {'price': price, 'quantity': 1}
-
-        # Return to the same category view to refresh quantities in _show_store_products function
-        self._show_store_products(self.current_store_category)
+            self.selected_store_items[product_name] = {'price': price, 'quantity': 1, 'prod_id': prod_id}
+            
+        # Get new quantity
+        new_quantity = self.selected_store_items[product_name]['quantity']
+        
+        # Update the product info label with new stock availability
+        new_stock = stock - new_quantity
+        updated_product_info = f"{product_name} - {price:.2f} € (Stock: {new_stock})"
+        product_label.configure(text=updated_product_info)
+        
+        # Update the quantity label with new quantity and make it visible
+        qty_label.configure(text=f"({new_quantity})")
+        qty_label.grid(row=0, column=1, padx=(10, 0))
 
 
     def _continue_store_purchase(self):
@@ -1641,7 +1633,7 @@ class AppGUI(ctk.CTk):
             return
 
         # Calculate total cost based on price * quantity for each item
-        self.store_total_cost = sum(item['price'] * item['quantity'] for item in self.selected_store_items.values())
+        self.store_total_cost = sum(item['price'] * item['quantity'] for item in self.selected_store_items.values()) # selected_store_items = {product_name: {'price': price, 'quantity': count}}
         self._build_store_payment_frame()
         self.show_frame(self.store_payment_frame)
 
@@ -1759,6 +1751,15 @@ class AppGUI(ctk.CTk):
         # Redeem points if applicable
         if self.redemption_approved:
             dbop.redeem_points(self.customer_id_for_points, self.points_redeemed)
+        
+        # Deduct stock for purchased items
+        for item_name, item_data in self.selected_store_items.items():
+            quantity = item_data.get('quantity', 1)
+            prod_id = item_data.get('prod_id')
+            if prod_id:
+                success = dbop.deduct_store_product_stock_by_id(prod_id, quantity)
+                if not success:
+                    messagebox.showwarning("Stock Warning", f"Could not deduct stock for {item_name}")
         
         # Show success message with amount and discount info
         message = f"Payment is successful!\n\nItems Purchased:"
