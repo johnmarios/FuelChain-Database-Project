@@ -1161,33 +1161,55 @@ class AppGUI(ctk.CTk):
         # Calculate points to be earned from current purchase
         points_to_earn = 0
         
-        if self.automated_amount_total > 0:
-            # Automated flow
+        # Check if this is a store purchase (no fuel involved)
+        if self.store_total_cost > 0:
+            # Store purchase: 1 point per euro
+            points_to_earn = int(self.store_total_cost)
+        elif self.automated_amount_total > 0:
+            # Automated fuel flow
             amount = self.automated_amount_total
+            price = self.selected_fuel.get('price_per_liter', 1.0)
+            max_euros = self.customer_tank_capacity * price
+            amount = min(amount, max_euros)
+            
+            if amount > 0:
+                liters = amount / price
+                points_per_liter = self.selected_fuel.get('points_per_liter', 0)
+                points_to_earn = int(liters * points_per_liter)
         elif self.non_auto_mode == 'euros':
             # Non-automated euros mode
             amount_text = self.amount_entry.get().strip()
             amount = float(amount_text) if amount_text else 0.0
+            price = self.selected_fuel.get('price_per_liter', 1.0)
+            max_euros = self.customer_tank_capacity * price
+            amount = min(amount, max_euros)
+            
+            if amount > 0:
+                liters = amount / price
+                points_per_liter = self.selected_fuel.get('points_per_liter', 0)
+                points_to_earn = int(liters * points_per_liter)
         elif self.non_auto_mode == 'fill':
             # Non-automated fill mode
             amount = self.fill_total_cost
+            price = self.selected_fuel.get('price_per_liter', 1.0)
+            
+            if amount > 0:
+                liters = amount / price
+                points_per_liter = self.selected_fuel.get('points_per_liter', 0)
+                points_to_earn = int(liters * points_per_liter)
         else:
             # Non-automated liters mode
             qty_text = self.qty_entry.get().strip()
             qty_liters = float(qty_text) if qty_text else 0.0
             price_per_liter = self.selected_fuel.get('price_per_liter', 1.0)
             amount = qty_liters * price_per_liter
-        
-        # keep in mind the max euros based on tank capacity
-        price = self.selected_fuel.get('price_per_liter', 1.0)
-        max_euros = self.customer_tank_capacity * price
-        amount = min(amount, max_euros)
-        
-        # Calculate points
-        if amount > 0: # if money was actually spent
-            liters = amount / price
-            points_per_liter = self.selected_fuel.get('points_per_liter', 0)
-            points_to_earn = int(liters * points_per_liter)
+            max_euros = self.customer_tank_capacity * price_per_liter
+            amount = min(amount, max_euros)
+            
+            if amount > 0:
+                liters = amount / price_per_liter
+                points_per_liter = self.selected_fuel.get('points_per_liter', 0)
+                points_to_earn = int(liters * points_per_liter)
         
         customer_name = f"{customer['fname']} {customer['lname']}".strip() # get customer full name
         
@@ -1197,11 +1219,13 @@ class AppGUI(ctk.CTk):
         else:
             messagebox.showinfo("Add Points", f"Card number found!\nWelcome back, {customer_name}!\nPoints to earn: {points_to_earn}")
         
-        # Navigate to appropriate frame (store/payment method)
+        # Navigate to appropriate frame based on context
         if self.store_total_cost > 0:
+            # Store purchase - go to store payment frame
             self._build_store_payment_frame()
             self.show_frame(self.store_payment_frame)
         else:
+            # Fuel purchase - go to payment method frame
             self.show_frame(self.payment_method_frame)
 
     def _show_points_redemption_dialog(self, customer_name, customer_points, points_to_earn):
@@ -1325,37 +1349,26 @@ class AppGUI(ctk.CTk):
             # Invalid number entered
             self.total_amount_label.configure(text="0.00€")
 
-    def _submit_add_points(self):
-        '''Handle Add Points button'''
-        number = self.card_number_entry.get().strip()
-        if number:
-            # Look up customer by card number
-            customer = dbop.get_customer_by_card_number(number)
-            
-            # if card number found
-            if customer:
-                # Store the card number and customer info
-                self.customer_card_number = number
-                self.customer_has_card = True
-                self.customer_id_for_points = customer['customer_id']
-                
-                customer_name = f"{customer['fname']} {customer['lname']}".strip()
-                messagebox.showinfo("Add Points", f"Card number found!\nWelcome back, {customer_name}!\nPoints: {customer['points']}")
-            else:
-                messagebox.showerror("Add Points", f"Card number '{number}' not found.\nPlease register first through Shell Go+ Registration.")
-                return
-            
-            self.show_frame(self.payment_method_frame)
-        else:
-            messagebox.showwarning("Add Points", "Please enter a card number.")
-
     def show_frame(self, frame):
         """Raise the given frame to the top to make it visible."""
         frame.tkraise()
 
     def _reset_customer_session(self):
-        """Reset all customer session variables after a transaction"""
+        """Reset all customer session variables after a transaction (full reset including tank capacity)"""
         self.customer_tank_capacity = 0
+        self.redemption_approved = False
+        self.points_redeemed = 0
+        self.euros_discount = 0.0
+        self.customer_has_card = False
+        self.customer_id_for_points = None
+        self.automated_amount_total = 0.0
+        self.selected_pump_id = None
+        self.selected_tank_id = None
+        self.selected_store_items = {}
+        self.store_total_cost = 0.0
+
+    def _reset_transaction_data(self):
+        """Reset transaction-specific data while preserving tank capacity (for staying at same station)"""
         self.redemption_approved = False
         self.points_redeemed = 0
         self.euros_discount = 0.0
@@ -1689,7 +1702,7 @@ class AppGUI(ctk.CTk):
         points_frame.grid_columnconfigure(0, weight=1)
         points_frame.grid_columnconfigure(1, weight=1)
 
-        btn_add_points = ctk.CTkButton(points_frame,text="Add Points",command=lambda: (self._build_add_points_frame(self.store_payment_frame), self.show_frame(self.add_points_frame)))
+        btn_add_points = ctk.CTkButton(points_frame,text="Add Points",command=lambda: (self._build_add_points_frame(), self.show_frame(self.add_points_frame)))
         btn_add_points.grid(row=0, column=0, padx=(0, 10), sticky="ew")
 
         btn_shell_go = ctk.CTkButton(points_frame,text="Register in Shell Go+",command=lambda: (self._build_shell_go_registration_frame(), self.show_frame(self.shell_go_frame)))
@@ -1765,8 +1778,8 @@ class AppGUI(ctk.CTk):
             message += f"\nPoints Discount: €{self.euros_discount:.2f}"
         messagebox.showinfo("Payment Successful!", message)
         
-        # Reset all customer session data
-        self._reset_customer_session()
+        # Reset transaction data but keep tank capacity (customer stays at same station)
+        self._reset_transaction_data()
         
         # Return to customer station frame
         self.show_frame(self.customer_station_frame)
