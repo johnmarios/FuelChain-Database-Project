@@ -97,8 +97,8 @@ CREATE TABLE `PRODUCT` (
     `product_id` integer primary key NOT NULL UNIQUE,
     `prod_type` TEXT NOT NULL
 );
-DROP TABLE IF EXISTS `PRODUCT_PRICE`;
-CREATE TABLE `PRODUCT_PRICE` (
+DROP TABLE IF EXISTS `STATION_PRODUCT_INFO`;
+CREATE TABLE `STATION_PRODUCT_INFO` (
     `prod_id` integer primary key NOT NULL UNIQUE,
     `price` REAL NOT NULL,
     `stock` INTEGER,
@@ -122,9 +122,7 @@ CREATE TABLE `STATION_PRODUCT` (
     `name` TEXT NOT NULL,
     `points` INTEGER NOT NULL,
     `for_prod_id` INTEGER NOT NULL,
-    `for_prod_price` INTEGER NOT NULL,
     FOREIGN KEY(`for_prod_id`) REFERENCES `PRODUCT`(`product_id`) ON DELETE CASCADE
-    FOREIGN KEY(`for_prod_price`) REFERENCES `PRODUCT_PRICE`(`prod_id`) ON DELETE CASCADE
 );
 CREATE TABLE IF NOT EXISTS `POINT_SYSTEM` (
     `customer_id` integer primary key NOT NULL UNIQUE,
@@ -214,7 +212,7 @@ def db_init(seed_stations: int = 10):
         cur.execute("DELETE FROM `TANK`;")
         cur.execute("DELETE FROM `EMPLOYEE`;")
         cur.execute("DELETE FROM `CUSTOMER`;")
-        cur.execute("DELETE FROM `PRODUCT_PRICE`;")
+        cur.execute("DELETE FROM `STATION_PRODUCT_INFO`;")
         cur.execute("DELETE FROM `STATION_PRODUCT`;")
         cur.execute("DELETE FROM `PRODUCT`;")
         cur.execute("DELETE FROM `STATION`;")
@@ -225,44 +223,35 @@ def db_init(seed_stations: int = 10):
         # Re-enable foreign key constraints
         cur.execute("PRAGMA foreign_keys = ON;")
 
-        # PRODUCTS - 8 fuels + store items derived from generator
-        fuel_id_list = []
-        fuel_count = 8
+        # FUELS 
+        # Insert fuel products and fuel data
+        fuel_dict = generate_fuels_dict() # {'Fuel Type': (price_per_liter, points_per_liter), ...}
+        fuel_id_list = [] # to keep track of fuel product IDs
+        
+        for pid, (fuel_type, (price_per_liter, points_per_liter)) in enumerate(fuel_dict.items(), start=1):
+            fuel_id_list.append(pid)
+            # Insert into PRODUCT
+            cur.execute("INSERT INTO PRODUCT(product_id, prod_type) VALUES (?, ?)", (pid, "fuel"))
+            # Insert into FUEL
+            cur.execute("INSERT INTO FUEL(prod_id, fuel_type, points_per_liter, for_prod_id) VALUES (?, ?, ?, ?)",(pid, fuel_type, points_per_liter, pid))
 
-        # Build store catalog once to drive PRODUCT and STATION_PRODUCT inserts
+        # STORE ITEMS
+        # Build store catalog and insert PRODUCT and STATION_PRODUCT entries
         store_catalog = generate_store_products_dict() # {category: {product_name: {price, points, stock}}}
-        store_items_list = []  # list of (category, name, points) to insert into STATION_PRODUCT
+        store_product_map = {}  # key: (category, name) -> {product_id, points}
+        
+        fuel_count = len(fuel_id_list)
+        product_id = fuel_count  # Start store item IDs after fuels
+        
         for category, products in store_catalog.items():
             for product_name, product_data in products.items():
-                store_items_list.append((category, product_name, product_data['points']))
-
-        store_items_count = len(store_items_list)
-
-        for pid in range(fuel_count): #pid: product_id
-            prod_type = "fuel"
-            fuel_id_list.append(pid + 1)
-            cur.execute("INSERT INTO PRODUCT(product_id, prod_type) VALUES (?, ?)",(pid + 1, prod_type),)
-
-        # Map store items to product IDs and insert into PRODUCT and STATION_PRODUCT
-        store_product_map = {}  # key: (category, name) -> {product_id, points}, important to keep track of product_ids for PRODUCT_PRICE inserts later (stock, price vary per station)
-        for idx, (category, product_name, points) in enumerate(store_items_list, start=1):
-            product_id = fuel_count + idx # taking into account fuel products which are inserted first
-            store_product_map[(category, product_name)] = {"product_id": product_id, "points": points} 
-            cur.execute("INSERT INTO PRODUCT(product_id, prod_type) VALUES (?, ?)",(product_id, "store_items"),)
-            cur.execute("INSERT INTO STATION_PRODUCT(prod_id, prod_type, name, points, for_prod_id) VALUES (?, ?, ?, ?, ?)",(product_id, category, product_name, points, product_id),)
-
-        # FUEL
-        fuel_dict = generate_fuels_dict()
-        fuel_points_per_liter = []
-        for ft, (price_per_liter, points_per_liter) in fuel_dict.items():
-            fuel_points_per_liter.append(points_per_liter)
-        fuel_info = zip(fuel_id_list, fuel_dict.keys(), fuel_points_per_liter) #[(fuel_id, fuel_type, points_per_liter), ...]
-        for fid, ft, points_per_liter in fuel_info:
-            for_prod_id = fid
-            cur.execute(
-                "INSERT INTO FUEL(prod_id, fuel_type, points_per_liter, for_prod_id) VALUES (?, ?, ?, ?)",
-                (fid, ft, points_per_liter, for_prod_id),
-            )
+                product_id += 1
+                points = product_data['points']
+                store_product_map[(category, product_name)] = {"product_id": product_id, "points": points} # store_product_map = {(category, name): {product_id, points}, ...}
+                # Insert into PRODUCT
+                cur.execute("INSERT INTO PRODUCT(product_id, prod_type) VALUES (?, ?)", (product_id, "store_items"))
+                # Insert into STATION_PRODUCT
+                cur.execute("INSERT INTO STATION_PRODUCT(prod_id, prod_type, name, points, for_prod_id) VALUES (?, ?, ?, ?, ?)",(product_id, category, product_name, points, product_id))
 
         # STATIONS
         for sid in range(1, seed_stations + 1):
@@ -273,9 +262,7 @@ def db_init(seed_stations: int = 10):
             automated = True if random.random() < 0.3 else False # 30% chance to be automated
             has_store = True if (not automated) and (random.random() < 0.8) else False # non-automated stations have 80% chance to have store
             cur.execute(
-                "INSERT INTO STATION(station_id, location, name, phone, email, automated, has_store) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (sid, location, name, phone, email, automated, has_store),
-            )
+                "INSERT INTO STATION(station_id, location, name, phone, email, automated, has_store) VALUES (?, ?, ?, ?, ?, ?, ?)",(sid, location, name, phone, email, automated, has_store),)
 
         # TANKS (ΤΑΝΚ) : 4-7 tanks per station
 
@@ -291,91 +278,97 @@ def db_init(seed_stations: int = 10):
 
         tank_id_holder = 0 # saves tank id across stations (station 1 - > tank_num = 5, station 2 -> tank_num = 4, then tank_id for station 2 starts from 6, tank_id_holder = 6)
         pump_id_holder = 0
-        fuel_id_holder = 0
-        prod_id_holder = 0
-        product_price_id = 0
 
         for_station = 0
+        for_prod_id = 0
 
         #fuel_count = len(fuel_types) #number of fuel types
         tank_id = 0
         pump_id = 0
+        station_product_info_id = 0
 
         for _ in range(seed_stations):  #max 7 tanks per station
-            tanks_dict = generate_tanks_dict()
+            tanks_dict = generate_tanks_dict() # {'Fuel Type': (count, (price_per_liter, points_per_liter)), ...}, count: number of tanks for that fuel type
             tan_num = sum(v[0] for v in tanks_dict.values())  #total number of tanks for the station
             for_station += 1
             tank_id_list_station = [i for i in range(tank_id_holder + 1, tank_id_holder + tan_num + 1)] #per station
 
-            for_fuel_id_list = []
-            capacity_holder = []
-            price_per_liter_holder = []
-            points_per_liter_holder = []
-            fuel_prices_for_station = {}  # {key: fuel_id, value: price_per_liter}
+            for_fuel_id_list = [] # list of fuel_ids corresponding to each tank, use for_prod_id in TANK insert
+            capacity_holder = [] # list of capacities corresponding to each tank
             tank_id_holder += tan_num
-            autogas_count = tanks_dict["Autogas"][0] # number of autogas tanks for the station
+            
+            # Get tank counts
+            autogas_count = tanks_dict["Autogas"][0]
             u95_count = tanks_dict["FuelSave Unleaded 95"][0]
-            u98_count = tanks_dict["V-Power 98"][0]   #always 1
+            u98_count = tanks_dict["V-Power 98"][0]
             u100_count = tanks_dict["V-Power Racing"][0] 
             diesel_count = tanks_dict["FuelSave Diesel"][0]
-            diesel_vp_count = tanks_dict["V-Power Diesel"][0] #always 1
+            diesel_vp_count = tanks_dict["V-Power Diesel"][0]
             heating_oil_count = tanks_dict["Heating Oil"][0]
+            
+            # Extract prices and points for each fuel type
+            u95_price = tanks_dict["FuelSave Unleaded 95"][1][0]
+            u95_points = tanks_dict["FuelSave Unleaded 95"][1][1]
+            u98_price = tanks_dict["V-Power 98"][1][0]
+            u98_points = tanks_dict["V-Power 98"][1][1]
+            u100_price = tanks_dict["V-Power Racing"][1][0]
+            u100_points = tanks_dict["V-Power Racing"][1][1]
+            diesel_price = tanks_dict["FuelSave Diesel"][1][0]
+            diesel_points = tanks_dict["FuelSave Diesel"][1][1]
+            diesel_vp_price = tanks_dict["V-Power Diesel"][1][0]
+            diesel_vp_points = tanks_dict["V-Power Diesel"][1][1]
+            heating_oil_price = tanks_dict["Heating Oil"][1][0]
+            heating_oil_points = tanks_dict["Heating Oil"][1][1]
+            autogas_price = tanks_dict["Autogas"][1][0]
+            autogas_points = tanks_dict["Autogas"][1][1]
+            
+            # Build fuel prices dict for this station (fuel_id -> price)
+            fuel_prices_for_station = {
+                1: u95_price,
+                2: u98_price,
+                3: u100_price,
+                4: diesel_price,
+                5: diesel_vp_price,
+                6: heating_oil_price,
+                7: autogas_price
+            }
 
+            # Build tank lists
             for i in range(u95_count):
-                capacity_holder.append(u95_capacity) # capacity for each tank with u95 fuel 
-                for_fuel_id_list.append(1)  # fuel_id for Unleaded 95 is 1
-                price = tanks_dict["FuelSave Unleaded 95"][1][0]
-                price_per_liter_holder.append(price)
-                points_per_liter_holder.append(tanks_dict["FuelSave Unleaded 95"][1][1])
-                fuel_prices_for_station[1] = price  # Store price for this fuel_id
+                capacity_holder.append(u95_capacity) # 
+                for_fuel_id_list.append(1)
 
-            # always 1 tank of u98
+
+            # Always 1 tank of u98
             capacity_holder.append(u98_capacity)
-            for_fuel_id_list.append(2)  # fuel_id for V-Power 98 is 2
-            price = tanks_dict["V-Power 98"][1][0]
-            price_per_liter_holder.append(price)
-            points_per_liter_holder.append(tanks_dict["V-Power 98"][1][1])
-            fuel_prices_for_station[2] = price
+            for_fuel_id_list.append(2)
 
-            for i in range(u100_count):           
+
+            for i in range(u100_count):
                 capacity_holder.append(u100_capacity)
-                for_fuel_id_list.append(3)  # fuel_id for V-Power Racing is 3
-                price = tanks_dict["V-Power Racing"][1][0]
-                price_per_liter_holder.append(price)
-                points_per_liter_holder.append(tanks_dict["V-Power Racing"][1][1])
-                fuel_prices_for_station[3] = price
+                for_fuel_id_list.append(3)
+
 
             for i in range(diesel_count):
                 capacity_holder.append(diesel_capacity)
-                for_fuel_id_list.append(4)  # fuel_id for FuelSave Diesel is 4
-                price = tanks_dict["FuelSave Diesel"][1][0]
-                price_per_liter_holder.append(price)
-                points_per_liter_holder.append(tanks_dict["FuelSave Diesel"][1][1])
-                fuel_prices_for_station[4] = price
+                for_fuel_id_list.append(4)
+ 
 
             for i in range(diesel_vp_count):
                 capacity_holder.append(diesel_vp_capacity)
-                for_fuel_id_list.append(5)  # fuel_id for V-Power Diesel is 5
-                price = tanks_dict["V-Power Diesel"][1][0]
-                price_per_liter_holder.append(price)
-                points_per_liter_holder.append(tanks_dict["V-Power Diesel"][1][1])
-                fuel_prices_for_station[5] = price
+                for_fuel_id_list.append(5)
+
 
             for i in range(heating_oil_count):
                 capacity_holder.append(heating_oil_capacity)
-                for_fuel_id_list.append(6)  # fuel_id for Heating Oil is 6
-                price = tanks_dict["Heating Oil"][1][0]
-                price_per_liter_holder.append(price)
-                points_per_liter_holder.append(tanks_dict["Heating Oil"][1][1])
-                fuel_prices_for_station[6] = price
+                for_fuel_id_list.append(6)
+   
 
             for i in range(autogas_count):
                 capacity_holder.append(autogas_capacity)
-                for_fuel_id_list.append(7)  # fuel_id for Autogas is 7
-                price = tanks_dict["Autogas"][1][0]
-                price_per_liter_holder.append(price)
-                points_per_liter_holder.append(tanks_dict["Autogas"][1][1])
-                fuel_prices_for_station[7] = price                 
+                for_fuel_id_list.append(7)
+
+            # LAST FILL UP DATE - random date within last year               
 
             last_fill_up = fake.date_between(start_date='-1y', end_date='today').isoformat()
 
@@ -393,7 +386,7 @@ def db_init(seed_stations: int = 10):
                 capacity = capacity_holder[i]
                 for_fuel_id = for_fuel_id_list[i]
                 current_quantity = fake.random_int(min=0, max=capacity)
-                # Sample minimum operational fuel level ~ N(200, 30^2), clamped to [0, capacity], as integer
+                # Sample minimum operational fuel level ~ N(200, 30^2), bounded to [0, capacity], as integer
                 min_fuel_quantity = random.gauss(200, 30)
                 min_fuel_quantity = int(round(max(0.0, min(float(capacity), float(min_fuel_quantity)))))
 
@@ -413,14 +406,12 @@ def db_init(seed_stations: int = 10):
                     (pump_id, is_active, pump_number, for_tank_id),
                 )
 
-            #------------------- INSERT PRODUCT_PRICE entries for this station's fuels (stock = NULL for fuels)
-            for fuel_id, price in fuel_prices_for_station.items():
-                product_price_id += 1
-                cur.execute(
-                    "INSERT INTO PRODUCT_PRICE(prod_id, price, stock, for_station_id, for_prod_id) VALUES (?, ?, NULL, ?, ?)",(product_price_id, price, for_station, fuel_id),
-                    )
+            #------------------- INSERT STATION_PRODUCT_INFO entries for this station's fuels (stock = NULL for fuels)
+            for fuel_id, price in fuel_prices_for_station.items(): # fuel_prices_for_station = {fuel_id -> price}
+                station_product_info_id += 1
+                cur.execute("INSERT INTO STATION_PRODUCT_INFO(prod_id, price, stock, for_station_id, for_prod_id) VALUES (?, ?, NULL, ?, ?)",(station_product_info_id, price, for_station, fuel_id),)
 
-            #------------------- INSERT PRODUCT_PRICE entries for this station's store products (if has_store)
+            #------------------- INSERT STATION_PRODUCT_INFO entries for this station's store products (if has_store)
             # Check if this station has a store
             cur.execute("SELECT has_store FROM STATION WHERE station_id = ?", (for_station,))
             row_has_store = cur.fetchone()
@@ -430,16 +421,16 @@ def db_init(seed_stations: int = 10):
                 # Generate store products for this station
                 store_products = generate_store_products_dict() # {category: {product_name: {price, points, stock}}}, i want different prices and stock per station and that's the reason for re-calling the function
                 
-                # Insert each product into PRODUCT_PRICE with stock
+                # Insert each product into STATION_PRODUCT_INFO with stock
                 for category, products in store_products.items():
                     for product_name, product_data in products.items():
-                        product_price_id += 1 # continues from fuel product_price_id
+                        station_product_info_id += 1 # continues from fuel station_product_info_id
                         price = product_data['price']
                         stock = product_data['stock']
-                        product_info = store_product_map.get((category, product_name))
+                        product_info = store_product_map.get((category, product_name)) # get product_id from store_product_map to use as for_prod_id
 
                         cur.execute(
-                            "INSERT INTO PRODUCT_PRICE(prod_id, price, stock, for_station_id, for_prod_id) VALUES (?, ?, ?, ?, ?)",(product_price_id, price, stock, for_station, product_info["product_id"]),
+                            "INSERT INTO STATION_PRODUCT_INFO(prod_id, price, stock, for_station_id, for_prod_id) VALUES (?, ?, ?, ?, ?)",(station_product_info_id, price, stock, for_station, product_info["product_id"]),
                         )
 
         # EMPLOYEES : 1-2 per station if is non automated | 0 if is automated
@@ -705,7 +696,7 @@ def get_admin_station_info(station_id):
                 sql = f"""
                     SELECT f.prod_id, f.fuel_type, f.points_per_liter, f.for_prod_id, pp.price
                     FROM FUEL as f
-                    JOIN PRODUCT_PRICE as pp ON pp.for_prod_id = f.prod_id AND pp.for_station_id = ?
+                    JOIN STATION_PRODUCT_INFO as pp ON pp.for_prod_id = f.prod_id AND pp.for_station_id = ?
                     WHERE f.prod_id IN ({placeholders})
                 """
                 params = [station_id] + fuel_ids # list concatenation
@@ -747,7 +738,7 @@ def get_store_products_for_station(station_id):
         cursor.execute(
             """
             SELECT sp.prod_type, sp.name, sp.points, pp.price, pp.stock
-            FROM PRODUCT_PRICE AS pp
+            FROM STATION_PRODUCT_INFO AS pp
             JOIN PRODUCT AS p ON p.product_id = pp.for_prod_id
             JOIN STATION_PRODUCT AS sp ON sp.for_prod_id = p.product_id
             WHERE pp.for_station_id = ? AND p.prod_type = 'store_items'
@@ -945,15 +936,15 @@ def deduct_store_product_stock(station_id, product_name, quantity_purchased):
 
     with _connect() as conn:
         cursor = conn.cursor()
-        # Get for_product_id from STATION_PRODUCT to update PRODUCT_PRICE
+        # Get for_product_id from STATION_PRODUCT to update STATION_PRODUCT_INFO
         cursor.execute("SELECT for_prod_id FROM STATION_PRODUCT WHERE name = ?;", (product_name,))
         row = cursor.fetchone()
         if not row:
             return False
         product_id = row[0]
 
-        # Get current stock from PRODUCT_PRICE
-        cursor.execute("SELECT stock FROM PRODUCT_PRICE WHERE for_station_id = ? AND for_prod_id = ?;", (station_id, product_id))
+        # Get current stock from STATION_PRODUCT_INFO
+        cursor.execute("SELECT stock FROM STATION_PRODUCT_INFO WHERE for_station_id = ? AND for_prod_id = ?;", (station_id, product_id))
         row = cursor.fetchone()
         if not row:
             return False
@@ -964,7 +955,7 @@ def deduct_store_product_stock(station_id, product_name, quantity_purchased):
             return False
 
         new_stock = current_stock - quantity_purchased
-        cursor.execute("UPDATE PRODUCT_PRICE SET stock = ? WHERE for_station_id = ? AND for_prod_id = ?;", (new_stock, station_id, product_id))
+        cursor.execute("UPDATE STATION_PRODUCT_INFO SET stock = ? WHERE for_station_id = ? AND for_prod_id = ?;", (new_stock, station_id, product_id))
         conn.commit()
         return True
 

@@ -1130,7 +1130,7 @@ class AppGUI(ctk.CTk):
         btn_submit.pack(pady=8, padx=20)
 
         # Determine where to go back to based on context
-        back_frame = self.store_payment_frame if hasattr(self, 'store_total_cost') and self.store_total_cost > 0 else self.payment_method_frame
+        back_frame = self.store_payment_frame if self.store_total_cost > 0 else self.payment_method_frame
         btn_back = ctk.CTkButton(self.add_points_frame, text="Back", command=lambda: self.show_frame(back_frame))
         btn_back.pack(side="bottom", anchor="e", padx=20, pady=20)
 
@@ -1326,11 +1326,13 @@ class AppGUI(ctk.CTk):
             self.total_amount_label.configure(text="0.00€")
 
     def _submit_add_points(self):
-        number = self.card_number_entry.get().strip() if hasattr(self, "card_number_entry") else ""
+        '''Handle Add Points button'''
+        number = self.card_number_entry.get().strip()
         if number:
             # Look up customer by card number
             customer = dbop.get_customer_by_card_number(number)
             
+            # if card number found
             if customer:
                 # Store the card number and customer info
                 self.customer_card_number = number
