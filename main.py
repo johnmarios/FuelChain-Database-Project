@@ -997,13 +997,11 @@ class AppGUI(ctk.CTk):
             messagebox.showerror("Error", f"Failed to save transaction: {e}")
             return
         
-        # Update customer points if they provided card and earned points
-        if total_points > 0:
-            dbop.update_customer_points(self.customer_id_for_points, total_points)
-        
-        # Redeem points if possible
-        if self.redemption_approved and self.customer_id_for_points:
-            dbop.redeem_points(self.customer_id_for_points, self.points_redeemed)
+        # Record points transaction in SWITCH (both earned and redeemed in one entry)
+        if self.customer_id_for_points:
+            points_to_add = total_points if total_points > 0 else 0
+            points_to_redeem = self.points_redeemed if self.redemption_approved else 0
+            dbop.record_transaction_points(self.customer_id_for_points, points_to_add, points_to_redeem, trans_id, trans_date)
         
         # Deduct fuel from the selected tank
         if amount_of_money > 0:
@@ -1011,13 +1009,24 @@ class AppGUI(ctk.CTk):
             liters_purchased = amount_of_money / price 
             dbop.deduct_fuel_from_tank(self.selected_tank_id, liters_purchased)
         
+        # Get points information from SWITCH table
+        switch_info = dbop.get_switch_entries_by_transaction(trans_id)
+        points_added = switch_info['points_added']
+        points_deducted = switch_info['points_deducted']
+        
         # Show completion message with amount paid and change/discount/points received
         message = f"Thank you for your purchase!\n\nAmount Paid: €{amount_of_money:.2f}"
         if self.euros_discount > 0:
             message += f"\nEuros Discount: {self.euros_discount:.2f} €"
         if change > 0:
             message += f"\nChange Received: {change:.2f} €"
-        message += f"\nPoints Earned: {total_points} points"
+        
+        # Display points from SWITCH
+        if points_added > 0:
+            message += f"\n\nPoints Earned: {points_added} points"
+        if points_deducted > 0:
+            message += f"\nPoints Redeemed: {points_deducted} points"
+        
         messagebox.showinfo("Purchase Complete", message)
         
         # Reset all customer session data
@@ -1058,17 +1067,19 @@ class AppGUI(ctk.CTk):
             messagebox.showerror("Error", f"Failed to save transaction: {e}")
             return
         
-        # Update customer points if they provided card and earned points
-        if total_points > 0 and for_cust_id is not None:
-            dbop.update_customer_points(for_cust_id, total_points)
-        
-        # Redeem points if applicable
-        if self.redemption_approved and for_cust_id is not None:
-            dbop.redeem_points(for_cust_id, self.points_redeemed)
+        # Record points transaction in SWITCH (both earned and redeemed in one entry)
+        if for_cust_id is not None:
+            points_to_add = total_points if total_points > 0 else 0
+            points_to_redeem = self.points_redeemed if self.redemption_approved else 0
+            dbop.record_transaction_points(for_cust_id, points_to_add, points_to_redeem, trans_id, trans_date)
         
         # Deduct fuel from tank
         dbop.deduct_fuel_from_tank(self.selected_tank_id, liters_purchased)
 
+        # Get points information from SWITCH table
+        switch_info = dbop.get_switch_entries_by_transaction(trans_id)
+        points_added = switch_info['points_added']
+        points_deducted = switch_info['points_deducted']
         
         # Show completion message with amount paid and discount info
         message = f"Thank you for your purchase!\n\nAmount Paid: {amount_of_money:.2f}€"
@@ -1076,6 +1087,13 @@ class AppGUI(ctk.CTk):
         # check if there's any discount 
         if self.euros_discount > 0:
             message += f"\nEuros Discount: {self.euros_discount:.2f}€"
+        
+        # Display points from SWITCH
+        if points_added > 0:
+            message += f"\n\nPoints Earned: {points_added} points"
+        if points_deducted > 0:
+            message += f"\nPoints Redeemed: {points_deducted} points"
+        
         messagebox.showinfo("Purchase Complete", message)
         
         # Reset all customer session data
@@ -1835,13 +1853,11 @@ class AppGUI(ctk.CTk):
             messagebox.showerror("Error", f"Failed to save transaction: {e}")
             return
         
-        # Update customer points if they provided card and earned points
-        if total_points > 0:
-            dbop.update_customer_points(self.customer_id_for_points, total_points)
-        
-        # Redeem points if applicable
-        if self.redemption_approved:
-            dbop.redeem_points(self.customer_id_for_points, self.points_redeemed)
+        # Record points transaction in SWITCH (both earned and redeemed in one entry)
+        if self.customer_id_for_points:
+            points_to_add = total_points if total_points > 0 else 0
+            points_to_redeem = self.points_redeemed if self.redemption_approved else 0
+            dbop.record_transaction_points(self.customer_id_for_points, points_to_add, points_to_redeem, trans_id, trans_date)
         
         # Deduct stock for purchased items
         for item_name, item_data in self.selected_store_items.items():
@@ -1851,6 +1867,11 @@ class AppGUI(ctk.CTk):
                 success = dbop.deduct_store_product_stock_by_id(prod_id, quantity)
                 if not success:
                     messagebox.showwarning("Stock Warning", f"Could not deduct stock for {item_name}")
+        
+        # Get points information from SWITCH table
+        switch_info = dbop.get_switch_entries_by_transaction(trans_id)
+        points_added = switch_info['points_added']
+        points_deducted = switch_info['points_deducted']
         
         # Show success message with amount and discount info
         message = f"Payment is successful!\n\nItems Purchased:"
@@ -1868,6 +1889,12 @@ class AppGUI(ctk.CTk):
         message += f"\n\nTotal Amount Paid: €{amount_of_money:.2f}"
         if self.euros_discount > 0:
             message += f"\nPoints Discount: €{self.euros_discount:.2f}"
+        
+        # Display points from SWITCH
+        if points_added > 0:
+            message += f"\n\nPoints Earned: {points_added} points"
+        if points_deducted > 0:
+            message += f"\nPoints Redeemed: {points_deducted} points"
         messagebox.showinfo("Payment Successful!", message)
         
         # Reset transaction data but keep tank capacity (customer stays at same station)

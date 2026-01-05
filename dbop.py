@@ -134,11 +134,12 @@ CREATE TABLE IF NOT EXISTS `INCLUSION` (
     FOREIGN KEY(`for_transaction_id`) REFERENCES `TRANSACTION`(`trans_id`) ON DELETE CASCADE
 );
 CREATE TABLE IF NOT EXISTS `SWITCH` (
+    `switch_id` INTEGER PRIMARY KEY AUTOINCREMENT,
     `for_transaction_id` integer NOT NULL,
     `for_point_system_id` integer NOT NULL,
     `date` DATETIME NOT NULL,
-    `points_added` INTEGER,
-    `points_deducted` INTEGER,
+    `points_added` INTEGER DEFAULT 0,
+    `points_deducted` INTEGER DEFAULT 0,
     FOREIGN KEY(`for_transaction_id`) REFERENCES `TRANSACTION`(`trans_id`) ON DELETE CASCADE,
     FOREIGN KEY(`for_point_system_id`) REFERENCES `POINT_SYSTEM`(`customer_id`) ON DELETE CASCADE
 );
@@ -814,16 +815,31 @@ def insert_customer(fname=None, lname=None, address=None, phone_number=None, ema
             print(f"Error inserting customer: {e}")
             return None
 
-def update_customer_points(customer_id, points_to_add):
-    '''Update customer points when they complete a transaction with card'''
+def record_transaction_points(customer_id, points_to_add, points_to_redeem, trans_id, trans_date):
+    '''Record points transaction in SWITCH entity - one entry per transaction with both added and redeemed points'''
+    if customer_id is None:
+        return True  # No customer, no points to track
+    
     with _connect() as conn:
         cursor = conn.cursor()
         try:
-            cursor.execute("UPDATE `POINT_SYSTEM` SET points = points + ? WHERE customer_id = ?",(points_to_add, customer_id))
+            # Insert single record into SWITCH table with both points_added and points_deducted
+            cursor.execute(
+                "INSERT INTO `SWITCH` (for_transaction_id, for_point_system_id, date, points_added, points_deducted) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (trans_id, customer_id, trans_date, points_to_add, points_to_redeem)
+            )
+            
+            # Update POINT_SYSTEM: add earned points and subtract redeemed points
+            net_points_change = points_to_add - points_to_redeem
+            cursor.execute(
+                "UPDATE `POINT_SYSTEM` SET points = points + ? WHERE customer_id = ?",
+                (net_points_change, customer_id)
+            )
             conn.commit()
             return True
         except Exception as e:
-            print(f"Error updating customer points: {e}")
+            print(f"Error recording transaction points: {e}")
             return False
 
 def get_customer_by_id(customer_id):
@@ -992,16 +1008,49 @@ def get_customer_details(customer_id):
             }
         return None
 
-def redeem_points(customer_id, points_to_redeem):
-    '''Redeem points for a customer - deducts points from POINT_SYSTEM'''
+def get_customer_point_history(customer_id):
+    '''Get all point transactions for a customer from SWITCH table'''
     with _connect() as conn:
         cursor = conn.cursor()
+        cursor.execute(
+            "SELECT s.switch_id, s.date, s.points_added, s.points_deducted, s.for_transaction_id "
+            "FROM `SWITCH` s "
+            "WHERE s.for_point_system_id = ? "
+            "ORDER BY s.date DESC",
+            (customer_id,)
+        )
+        rows = cursor.fetchall()
+        return rows
+
+def get_switch_entries_by_transaction(trans_id):
+    '''Get SWITCH entry for a specific transaction showing points added and deducted (one entry per transaction)'''
+    with _connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT switch_id, for_point_system_id, date, points_added, points_deducted "
+            "FROM `SWITCH` "
+            "WHERE for_transaction_id = ?",
+            (trans_id,)
+        )
+        row = cursor.fetchone()
         
-        # Update POINT_SYSTEM to subtract redeemed points
-        cursor.execute("UPDATE POINT_SYSTEM SET points = points - ? WHERE customer_id = ?", (points_to_redeem, customer_id))
-        conn.commit()
-        
-        return True
+        if row:
+            return {
+                'switch_id': row[0],
+                'customer_id': row[1],
+                'date': row[2],
+                'points_added': row[3] if row[3] else 0,
+                'points_deducted': row[4] if row[4] else 0
+            }
+        else:
+            # No SWITCH entry (anonymous customer)
+            return {
+                'switch_id': None,
+                'customer_id': None,
+                'date': None,
+                'points_added': 0,
+                'points_deducted': 0
+            }
 
 if __name__ == '__main__':
     create_schema()
