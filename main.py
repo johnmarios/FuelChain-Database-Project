@@ -718,10 +718,13 @@ class AppGUI(ctk.CTk):
             amount = self.fill_total_cost # in fill mode, amount is precomputed based on tank capacity, we have computed that self.fill_total_cost = self.customer_tank_capacity * price_per_liter
 
         else:  # liters mode
-            qty_text = self.qty_entry.get().strip() 
-            try:
-                qty_liters = float(qty_text) if qty_text else 0.0
-            except ValueError:
+            if self.qty_entry is not None:
+                qty_text = self.qty_entry.get().strip() 
+                try:
+                    qty_liters = float(qty_text) if qty_text else 0.0
+                except ValueError:
+                    qty_liters = 0.0
+            else:
                 qty_liters = 0.0
                
             qty_liters = min(qty_liters, self.customer_tank_capacity) # limit liters to tank capacity
@@ -1008,6 +1011,11 @@ class AppGUI(ctk.CTk):
             price = self.selected_fuel.get('price_per_liter', 1.0)
             liters_purchased = amount_of_money / price 
             dbop.deduct_fuel_from_tank(self.selected_tank_id, liters_purchased)
+            
+            # Record fuel purchase in INCLUSION table
+            fuel_product_id = self.selected_fuel.get('prod_id') # prod id of entity FUEL
+            if fuel_product_id:
+                dbop.insert_inclusion_record(trans_id, fuel_product_id, liters_purchased, price)
         
         # Get points information from SWITCH table
         switch_info = dbop.get_switch_entries_by_transaction(trans_id)
@@ -1075,6 +1083,12 @@ class AppGUI(ctk.CTk):
         
         # Deduct fuel from tank
         dbop.deduct_fuel_from_tank(self.selected_tank_id, liters_purchased)
+        
+        # Record fuel purchase in INCLUSION table
+        fuel_product_id = self.selected_fuel.get('prod_id') # prod id of entity FUEL
+        if fuel_product_id:
+            price = self.selected_fuel.get('price_per_liter', 1.0)
+            dbop.insert_inclusion_record(trans_id, fuel_product_id, liters_purchased, price)
 
         # Get points information from SWITCH table
         switch_info = dbop.get_switch_entries_by_transaction(trans_id)
@@ -1281,8 +1295,12 @@ class AppGUI(ctk.CTk):
         
         customer_name = f"{customer['fname']} {customer['lname']}".strip() # get customer full name
         
-        # Check if customer has at least 250 points for redemption
-        if self.current_customer_points >= 250:
+        # Check if current station is automated
+        station_info = dbop.get_admin_station_info(self.current_customer_station)
+        is_automated = station_info.get('automated', False)
+        
+        # Check if customer has at least 250 points for redemption (only for non-automated stations)
+        if self.current_customer_points >= 250 and not is_automated:
             self._show_points_redemption_dialog(customer_name, self.current_customer_points, points_to_earn)
         else:
             messagebox.showinfo("Add Points", f"Card number found!\nWelcome back, {customer_name}!\nPoints to earn: {points_to_earn}")
@@ -1376,6 +1394,9 @@ class AppGUI(ctk.CTk):
 
     def update_from_euros_entry(self):
         """When user types euros (non-automated + euros mode): compute liters and points."""
+        if self.amount_entry is None:
+            return
+        
         try:
             amt_text = self.amount_entry.get().strip()
             euros = float(amt_text) if amt_text else 0.0
@@ -1398,6 +1419,9 @@ class AppGUI(ctk.CTk):
 
     def update_from_liters_entry(self):
         """Update total amount and points from entry field for non-automated stations (liters mode)"""
+        if self.qty_entry is None:
+            return
+        
         try:
             qty_text = self.qty_entry.get().strip()
             if not qty_text:
@@ -1859,14 +1883,22 @@ class AppGUI(ctk.CTk):
             points_to_redeem = self.points_redeemed if self.redemption_approved else 0
             dbop.record_transaction_points(self.customer_id_for_points, points_to_add, points_to_redeem, trans_id, trans_date)
         
-        # Deduct stock for purchased items
+        # Deduct stock for purchased items and record in INCLUSION
         for item_name, item_data in self.selected_store_items.items():
             quantity = item_data.get('quantity', 1)
             prod_id = item_data.get('prod_id')
+            price = item_data.get('price', 0)
+            
             if prod_id:
+                # Deduct stock
                 success = dbop.deduct_store_product_stock_by_id(prod_id, quantity)
                 if not success:
                     messagebox.showwarning("Stock Warning", f"Could not deduct stock for {item_name}")
+                
+                # Get the base product_id from STATION_PRODUCT_INFO and record in INCLUSION
+                base_product_id = dbop.get_base_product_id_from_station_product_info(prod_id)
+                if base_product_id:
+                    dbop.insert_inclusion_record(trans_id, base_product_id, quantity, price)
         
         # Get points information from SWITCH table
         switch_info = dbop.get_switch_entries_by_transaction(trans_id)

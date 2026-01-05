@@ -128,8 +128,11 @@ CREATE TABLE IF NOT EXISTS `POINT_SYSTEM` (
     FOREIGN KEY(`customer_id`) REFERENCES `CUSTOMER`(`customer_id`) ON DELETE CASCADE
 );
 CREATE TABLE IF NOT EXISTS `INCLUSION` (
+    `inclusion_id` INTEGER PRIMARY KEY AUTOINCREMENT,
     `for_prod_id` integer NOT NULL,
     `for_transaction_id` integer NOT NULL,
+    `quantity` REAL NOT NULL,
+    `price_at_purchase` REAL NOT NULL,
     FOREIGN KEY(`for_prod_id`) REFERENCES `PRODUCT`(`product_id`) ON DELETE CASCADE,
     FOREIGN KEY(`for_transaction_id`) REFERENCES `TRANSACTION`(`trans_id`) ON DELETE CASCADE
 );
@@ -959,7 +962,7 @@ def deduct_store_product_stock_by_id(prod_id, quantity_purchased):
         return True
 
 def get_store_product_info_by_id(prod_id):
-    '''Get store product information using STATION_PRODUCT_INFO.prod_id (primary key)
+    '''Get store product information using STATION_PRODUCT_INFO.prod_id 
     Returns: {name, price, stock} or None if not found'''
     with _connect() as conn:
         cursor = conn.cursor()
@@ -977,6 +980,17 @@ def get_store_product_info_by_id(prod_id):
         if row:
             return {'name': row[0],'price': row[1],'stock': row[2]}
         return None
+
+def get_base_product_id_from_station_product_info(station_product_info_id):
+    '''Get the base product_id (from PRODUCT table) using STATION_PRODUCT_INFO.prod_id'''
+    with _connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT for_prod_id FROM STATION_PRODUCT_INFO WHERE prod_id = ?",
+            (station_product_info_id,)
+        )
+        row = cursor.fetchone()
+        return row[0] if row else None
 
 def get_customer_details(customer_id):
     '''Get detailed customer information including points data'''
@@ -1051,6 +1065,55 @@ def get_switch_entries_by_transaction(trans_id):
                 'points_added': 0,
                 'points_deducted': 0
             }
+
+def insert_inclusion_record(trans_id, product_id, quantity, price_at_purchase):
+    '''Insert a product inclusion record for a transaction'''
+    with _connect() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "INSERT INTO `INCLUSION` (for_transaction_id, for_prod_id, quantity, price_at_purchase) "
+                "VALUES (?, ?, ?, ?)",
+                (trans_id, product_id, quantity, price_at_purchase)
+            )
+            conn.commit()
+            return cursor.lastrowid
+        except Exception as e:
+            print(f"Error inserting inclusion record: {e}")
+            return None
+
+def get_transaction_products(trans_id):
+    '''Get all products purchased in a specific transaction with details'''
+    with _connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT i.inclusion_id, i.for_prod_id, i.quantity, i.price_at_purchase, "
+            "p.prod_type, "
+            "CASE "
+            "  WHEN p.prod_type = 'fuel' THEN f.fuel_type "
+            "  WHEN p.prod_type = 'store_items' THEN sp.name "
+            "  ELSE 'Unknown' "
+            "END as product_name "
+            "FROM `INCLUSION` i "
+            "JOIN `PRODUCT` p ON i.for_prod_id = p.product_id "
+            "LEFT JOIN `FUEL` f ON p.product_id = f.prod_id AND p.prod_type = 'fuel' "
+            "LEFT JOIN `STATION_PRODUCT` sp ON p.product_id = sp.prod_id AND p.prod_type = 'store_items' "
+            "WHERE i.for_transaction_id = ?",
+            (trans_id,)
+        )
+        rows = cursor.fetchall()
+        
+        products = []
+        for row in rows:
+            products.append({
+                'inclusion_id': row[0],
+                'product_id': row[1],
+                'quantity': row[2],
+                'price_at_purchase': row[3],
+                'product_type': row[4],
+                'product_name': row[5]
+            })
+        return products
 
 if __name__ == '__main__':
     create_schema()
