@@ -16,10 +16,6 @@ MAIN_FRAME_COLOUR = ("white","#0F0F0F")
 
 # Αρχικό GUI 
 class AppGUI(ctk.CTk):
-    # Initialize the database schema and seed with data if needed
-    dbop.create_schema()
-    dbop.init_db_if_needed()
-
     ctk.set_default_color_theme("green")  # Themes: "blue" (standard), "green", "dark-blue"
     def __init__(self):
         super().__init__()
@@ -422,7 +418,10 @@ class AppGUI(ctk.CTk):
         fuels_label.grid(row=3, column=0, columnspan=2, pady=(10, 10))
 
         # Employees info
-        employees_text = "Employees:\n" + "\n".join([f"\nID: {e['emp_id']}, \nName: {e['fname']}, \nLast Name: {e['lname']}, \nAmka: {e['ssn']}, \nSalary: {e['salary']}, \nEmail: {e['email']}" for e in station_info['employees']])
+        if station_info['automated']:
+            employees_text = "Employees:\n None"
+        else :
+            employees_text = "Employees:\n" + "\n".join([f"\nID: {e['emp_id']}, \nName: {e['fname']}, \nLast Name: {e['lname']}, \nAmka: {e['ssn']}, \nSalary: {e['salary']}, \nEmail: {e['email']}" for e in station_info['employees']])
         employees_label = ctk.CTkLabel(self.scrollable_admin_station_frame, text=employees_text, font=ctk.CTkFont(size=14))
         employees_label.grid(row=4, column=0, columnspan=2, pady=(10, 10))
 
@@ -1138,9 +1137,7 @@ class AppGUI(ctk.CTk):
                     phone_number=self.shellgo_entries['phone'].get().strip(),
                     email=self.shellgo_entries['email'].get().strip(),
                     tax_id=self.shellgo_entries['afm'].get().strip(),
-                    payment_type="Shell Go+",
                     delivery_address=None,
-                    fuel_card=None,
                     company_name=None,
                     card_number=card_number
                 )
@@ -1913,7 +1910,7 @@ class AppGUI(ctk.CTk):
                 if for_cust_id:
                     cust_info = f"Customer: {fname} {lname} (Customer ID: {for_cust_id})"
                 else:
-                    cust_info = "Anonymous\n"
+                    cust_info = "Anonymous"
                 
                 station_info = f"Station: {station_name} (station ID: {for_station_id})" 
                 trans_info = (f"Transaction ID: {trans_id} | Date: {trans_datetime} | Amount: {amount_of_money:.2f} € | "f"Points: {total_points} \n {cust_info} \n {station_info} \n Payment: {payment_method}")
@@ -2001,7 +1998,8 @@ class AppGUI(ctk.CTk):
         scrollable_details.grid_columnconfigure(1, weight=1)
 
         # Customer details data
-        points = customer.get('points', 0) 
+        points = customer.get('points', 0)
+        
         details = [
             ("Customer ID", customer.get('customer_id', 'N/A')),
             ("Name", full_name),
@@ -2012,10 +2010,7 @@ class AppGUI(ctk.CTk):
             ("Phone", customer.get('phone_number', 'N/A')),
             ("Email", customer.get('email', 'N/A')),
             ("Tax ID", customer.get('tax_id', 'N/A')),
-            ("Payment Type", customer.get('payment_type', 'N/A')),
             ("Company Name", customer.get('company_name', 'N/A')),
-            ("Fuel Card", customer.get('fuel_card', 'N/A')),
-            ("Anonymous", customer.get('anonymous', 'N/A')),
         ]
 
         # Add all customer details
@@ -2038,5 +2033,20 @@ class AppGUI(ctk.CTk):
 
 
 if __name__ == "__main__":
+    dbop.db_init()
+    # choice = input("Initialize database (recreates fuel_chain.db)? [Y/n]: ").strip().lower()
+
+    # if choice in ("", "y", "yes"):
+    #     print("Initializing database...")
+    #     dbop.db_init()
+    #     print("Database initialized and saved to fuel_chain.db.")
+    # else:
+    #     if not os.path.exists(dbop.DB_PATH):
+    #         print("fuel_chain.db not found. Initializing a new database...")
+    #         dbop.db_init()
+    #         print("Database initialized and saved to fuel_chain.db.")
+    #     else:
+    #         print("Using existing fuel_chain.db database.")
+
     app = AppGUI()
     app.mainloop()

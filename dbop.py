@@ -65,10 +65,7 @@ CREATE TABLE IF NOT EXISTS `CUSTOMER` (
     `phone_number` INTEGER NOT NULL,
     `email` TEXT,
     `tax_id` INTEGER NOT NULL,
-    `payment_type` TEXT,
-    `anonymous` REAL NOT NULL,
     `delivery_address` TEXT,
-    `fuel_card` INTEGER NOT NULL,
     `company_name` TEXT,
     `for_system_points_id` INTEGER,
     FOREIGN KEY(`for_system_points_id`) REFERENCES `POINT_SYSTEM`(`customer_id`) ON DELETE CASCADE
@@ -164,15 +161,15 @@ def create_schema():
         conn.commit()
 
 
-def _digits_only(s: str) -> int:
+def _digits_or_none_only(s):
     '''Extract digits from a string and return as integer. If no digits, return 0.'''
     if s is None:
         return 0
-    digits = re.sub(r"\D", "", str(s)) # remove non-digit characters
+    digits = re.sub(r"\D", "", str(s)) # remove non-digit characters, replace \D (non digit) characters with ""
     try:
-        return int(digits) if digits else 0
+        return int(digits) if digits else None
     except ValueError:
-        return 0
+        return None
 
 
 def init_db_if_needed(seed_stations: int = 10):
@@ -257,7 +254,7 @@ def db_init(seed_stations: int = 10):
         for sid in range(1, seed_stations + 1):
             name = fake.company()
             email = fake.company_email()
-            phone = _digits_only(fake.phone_number())
+            phone = _digits_or_none_only(fake.phone_number())
             location = fake.address().replace("\n", ", ")
             automated = True if random.random() < 0.3 else False # 30% chance to be automated
             has_store = True if (not automated) and (random.random() < 0.8) else False # non-automated stations have 80% chance to have store
@@ -445,7 +442,7 @@ def db_init(seed_stations: int = 10):
                 emp_id += 1
                 fname = fake.first_name()
                 lname = fake.last_name()
-                ssn = _digits_only(fake.ssn()) or fake.random_int(min=100000000, max=999999999)
+                ssn = _digits_or_none_only(fake.ssn()) or fake.random_int(min=100000000, max=999999999) # afm 9 digits
                 salary = fake.random_int(min=9600, max=12000)
                 email = fake.email()
                 for_station_id = sid        
@@ -786,26 +783,23 @@ def get_all_transactions():
         rows = cursor.fetchall()
         return rows
 
-def insert_customer(fname=None, lname=None, address=None, phone_number=None, email=None, tax_id=None, payment_type=None, delivery_address=None, fuel_card=None, company_name=None, card_number=None):
+def insert_customer(fname=None, lname=None, address=None, phone_number=None, email=None, tax_id=None, delivery_address=None, company_name=None, card_number=None):
     '''Insert a new customer and create a corresponding points record with card number'''
-    # phone, tax_id, fuel_card are NOT NULL INTEGER fields, provide defaults if needed
+    # phone, tax_id are NOT NULL INTEGER fields, provide defaults if needed
     with _connect() as conn:
         cursor = conn.cursor()
         try:
 
             # Phone number: extract digits and convert to int, default to 0
-            phone_int = _digits_only(phone_number) if phone_number else 0
+            phone_int = _digits_or_none_only(phone_number) if phone_number else 0
             
             # Tax ID: extract digits and convert to int, default to 0
-            tax_id_int = _digits_only(tax_id) if tax_id else 0
-            
-            # Fuel card: convert to int, default to 0
-            fuel_card_int = _digits_only(fuel_card) if fuel_card else 0
+            tax_id_int = _digits_or_none_only(tax_id) if tax_id else 0
               
             # Insert customer with converted fields
-            cursor.execute("INSERT INTO `CUSTOMER` (fname, lname, address, phone_number, email, tax_id, payment_type, anonymous, delivery_address, fuel_card, company_name, for_system_points_id) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)",
-                (fname, lname, address, phone_int, email, tax_id_int, payment_type, 0, delivery_address, fuel_card_int, company_name)) # from now on anonymous = 0 
+            cursor.execute("INSERT INTO `CUSTOMER` (fname, lname, address, phone_number, email, tax_id, delivery_address, company_name, for_system_points_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)",
+                (fname, lname, address, phone_int, email, tax_id_int, delivery_address, company_name))
             customer_id = cursor.lastrowid # fetches the auto-generated customer_id
             
             # Create corresponding points record with card number
@@ -837,7 +831,7 @@ def get_customer_by_id(customer_id):
     with _connect() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT customer_id, fname, lname, address, phone_number, email, tax_id, payment_type, delivery_address, fuel_card, company_name FROM `CUSTOMER` WHERE customer_id = ?",
+            "SELECT customer_id, fname, lname, address, phone_number, email, tax_id, delivery_address, company_name FROM `CUSTOMER` WHERE customer_id = ?",
             (customer_id,)
         )
         row = cursor.fetchone()
@@ -850,10 +844,8 @@ def get_customer_by_id(customer_id):
                 'phone_number': row[4],
                 'email': row[5],
                 'tax_id': row[6],
-                'payment_type': row[7],
-                'delivery_address': row[8],
-                'fuel_card': row[9],
-                'company_name': row[10]
+                'delivery_address': row[7],
+                'company_name': row[8]
             }
         return None
 
@@ -976,7 +968,7 @@ def get_customer_details(customer_id):
         cursor = conn.cursor()
         cursor.execute(
             "SELECT c.customer_id, c.fname, c.lname, c.address, c.phone_number, c.email, "
-            "c.tax_id, c.payment_type, c.anonymous, c.delivery_address, c.fuel_card, c.company_name, "
+            "c.tax_id, c.delivery_address, c.company_name, "
             "ps.points, ps.card_number "
             "FROM `CUSTOMER` c "
             "LEFT JOIN `POINT_SYSTEM` ps ON c.customer_id = ps.customer_id "
@@ -993,13 +985,10 @@ def get_customer_details(customer_id):
                 'phone_number': row[4],
                 'email': row[5],
                 'tax_id': row[6],
-                'payment_type': row[7],
-                'anonymous': row[8],
-                'delivery_address': row[9],
-                'fuel_card': row[10],
-                'company_name': row[11],
-                'points': row[12],
-                'card_number': row[13]
+                'delivery_address': row[7],
+                'company_name': row[8],
+                'points': row[9],
+                'card_number': row[10]
             }
         return None
 
