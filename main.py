@@ -1234,6 +1234,20 @@ class AppGUI(ctk.CTk):
             messagebox.showerror("Add Points", f"Card number '{number}' not found.\nPlease register first through Shell Go+ Registration.")
             return
         
+        # --- ΕΚΤΕΛΕΣΗ TEST ΤΑΧΥΤΗΤΑΣ ΕΥΡΕΤΗΡΙΟΥ ---
+        time_no_index, time_with_index = dbop.test_speed(number)
+        
+        speed_results = (
+            f"Database Performance Test (1000 searches):\n"
+            f"------------------------------------------\n"
+            f"Without Index: {time_no_index:.5f} sec\n"
+            f"With Index: {time_with_index:.5f} sec\n"
+            f"Improvement: {((time_no_index - time_with_index) / time_no_index * 100):.1f}%"
+        )
+
+        # Εμφάνιση αποτελεσμάτων ταχύτητας
+        messagebox.showinfo("Index Performance", speed_results)
+        
         # Store the card number and customer info
         self.customer_card_number = number
         self.customer_has_card = True
@@ -2092,20 +2106,20 @@ class AppGUI(ctk.CTk):
 
 
 if __name__ == "__main__":
-    dbop.db_init()
-    # choice = input("Initialize database (recreates fuel_chain.db)? [Y/n]: ").strip().lower()
+    #dbop.db_init()
+    choice = input("Initialize database (recreates fuel_chain.db)? [Y/n]: ").strip().lower()
 
-    # if choice in ("", "y", "yes"):
-    #     print("Initializing database...")
-    #     dbop.db_init()
-    #     print("Database initialized and saved to fuel_chain.db.")
-    # else:
-    #     if not os.path.exists(dbop.DB_PATH):
-    #         print("fuel_chain.db not found. Initializing a new database...")
-    #         dbop.db_init()
-    #         print("Database initialized and saved to fuel_chain.db.")
-    #     else:
-    #         print("Using existing fuel_chain.db database.")
+    if choice in ("", "y", "yes"):
+        print("Initializing database...")
+        dbop.db_init()
+        print("Database initialized and saved to fuel_chain.db.")
+    else:
+        if not os.path.exists(dbop.DB_PATH):
+            print("fuel_chain.db not found. Initializing a new database...")
+            dbop.db_init()
+            print("Database initialized and saved to fuel_chain.db.")
+        else:
+            print("Using existing fuel_chain.db database.")
 
     app = AppGUI()
     app.mainloop()

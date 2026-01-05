@@ -4,6 +4,7 @@ import re
 from datetime import date
 from faker import Faker
 import random 
+import time
 
 DB_PATH = "fuel_chain.db"
 
@@ -1114,6 +1115,34 @@ def get_transaction_products(trans_id):
                 'product_name': row[5]
             })
         return products
+def test_speed(card_num):
+    """Σύγκριση ταχύτητας αναζήτησης με και χωρίς ευρετήριο για συγκεκριμένο card_num"""
+    conn = _connect()
+    cursor = conn.cursor()
+    iterations = 1000  # Αριθμός επαναλήψεων για να γίνει αισθητή η διαφορά
+
+    # 1. Μέτρηση ΧΩΡΙΣ ευρετήριο
+    cursor.execute("DROP INDEX IF EXISTS idx_card_number;")
+    start1 = time.perf_counter()
+    for _ in range(iterations):
+        cursor.execute("SELECT customer_id FROM POINT_SYSTEM WHERE card_number = ?", (card_num,))
+        cursor.fetchone()
+    end1 = time.perf_counter()
+    time_without = end1 - start1
+
+    # 2. Μέτρηση ΜΕ ευρετήριο
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_card_number ON POINT_SYSTEM(card_number);")
+    start2 = time.perf_counter()
+    for _ in range(iterations):
+        cursor.execute("SELECT customer_id FROM POINT_SYSTEM WHERE card_number = ?", (card_num,))
+        cursor.fetchone()
+    end2 = time.perf_counter()
+    time_with = end2 - start2
+    
+    conn.close()
+    return time_without, time_with
+    
+
 
 if __name__ == '__main__':
     create_schema()
