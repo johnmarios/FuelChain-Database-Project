@@ -514,7 +514,6 @@ def generate_store_products_dict():
             "Ξηροί Καρποί": [3.5, 4.9, 20, min_items_snacks, max_items_snacks],
             "Σοκολάτα": [1.2, 2.0, 20, min_items_snacks, max_items_snacks],
             "Καραμέλες": [2.0, 3.0, 20, min_items_snacks, max_items_snacks],
-            "Ενεργειακή Μπάρα": [2.5, 3.5, 20, min_items_snacks, max_items_snacks],
             "Μπάρα Δημητριακών": [1.8, 2.5, 20, min_items_snacks, max_items_snacks],
             "Σοκολατάκια": [1.5, 2.3, 20, min_items_snacks, max_items_snacks]
         },
@@ -527,34 +526,33 @@ def generate_store_products_dict():
             "Χυμός Φυσικός": [1.2, 2.0, 20, min_items_beverages, max_items_beverages],
             "Καφές": [2.0, 3.0, 20, min_items_beverages, max_items_beverages],
             "Αναψυκτικό Χωρίς Ζάχαρη": [1.5, 2.5, 20, min_items_beverages, max_items_beverages],
-            "Γάλα": [2.2, 3.2, 20, min_items_beverages, max_items_beverages],
-            "Ποτό Βιταμινών": [2.0, 3.0, 20, min_items_beverages, max_items_beverages]
+            "Γάλα": [2.2, 3.2, 20, min_items_beverages, max_items_beverages]
+            
         },
         "Car Care": {
             "Λάδι Κινητήρα": [12.0, 18.0, 0, min_items_car_care, max_items_car_care],
             "Υγρό Υαλοκαθαριστήρων": [3.5, 5.5, 0, min_items_car_care, max_items_car_care],
-            "Αντλία Ελαστικού": [15.0, 22.0, 0, min_items_car_care, max_items_car_care],
+            "Τρόμπα": [15.0, 22.0, 0, min_items_car_care, max_items_car_care],
             "Αρωματικό Αυτοκινήτου": [2.5, 4.0, 0, min_items_car_care, max_items_car_care],
             "Πανί Καθαρισμού": [3.0, 5.0, 0, min_items_car_care, max_items_car_care],
             "Λάστιχα Υαλοκαθαριστήρων": [12.0, 18.0, 0, min_items_car_care, max_items_car_care],
             "Ξύστρα Πάγου": [4.0, 6.5, 0, min_items_car_care, max_items_car_care],
-            "Βάση Κινητού": [8.0, 12.0, 0, min_items_car_care, max_items_car_care],
+            "Βάση Κινητού": [4.0, 12.0, 0, min_items_car_care, max_items_car_care],
             "Φορτιστής USB": [6.0, 10.0, 0, min_items_car_care, max_items_car_care],
-            "Καλώδια Μπαταρίας": [15.0, 23.0, 0, min_items_car_care, max_items_car_care]
+            "Καλώδια Μπαταρίας": [15.0, 30.0, 0, min_items_car_care, max_items_car_care]
         },
         "Vaping": {
-            "Τσιγάρα": [5.0, 8.0, 0, min_items_vaping, max_items_vaping],
+            "Τσιγάρα": [2.5, 8.0, 0, min_items_vaping, max_items_vaping],
             "Πούρο": [4.0, 7.0, 0, min_items_vaping, max_items_vaping],
-            "Αναπτήρας": [1.0, 2.0, 0, min_items_vaping, max_items_vaping],
-            "Υγρό Κάπνισμα": [8.0, 12.0, 0, min_items_vaping, max_items_vaping],
+            "Αναπτήρας": [1.0, 3.0, 0, min_items_vaping, max_items_vaping],
+            "Καπνός": [7.0, 22.0, 0, min_items_vaping, max_items_vaping],
             "Χαρτάκια": [1.5, 2.5, 0, min_items_vaping, max_items_vaping]
         },
         "Personal Care": {
             "Αντισηπτικό Χεριών": [2.0, 3.5, 0, min_items_personal_care, max_items_personal_care],
             "Υγρά Μαντηλάκια": [2.5, 4.0, 0, min_items_personal_care, max_items_personal_care],
-            "Παυσίπονο": [4.0, 6.5, 0, min_items_personal_care, max_items_personal_care],
-            "Γυαλιά Ηλίου": [8.0, 14.0, 0, min_items_personal_care, max_items_personal_care],
-            "Βάλσαμο Χειλιών": [1.5, 2.8, 0, min_items_personal_care, max_items_personal_care]
+            "Παυσίπονο": [3.0, 5.0, 0, min_items_personal_care, max_items_personal_care],
+            "Γυαλιά Ηλίου": [20.0, 40.0, 0, min_items_personal_care, max_items_personal_care]
         },
         "Convenience Items": {
             "Καλώδιο Φόρτισης": [7.0, 12.0, 0, min_items_convenience, max_items_convenience],
@@ -562,15 +560,13 @@ def generate_store_products_dict():
             "Ομπρέλα": [6.0, 10.0, 0, min_items_convenience, max_items_convenience],
             "Φακός": [8.0, 13.0, 0, min_items_convenience, max_items_convenience],
             "Μπαταρίες ΑΑ": [4.0, 6.5, 0, min_items_convenience, max_items_convenience],
-            "Θερμό": [7.0, 11.0, 0, min_items_convenience, max_items_convenience],
+            "Θερμό": [7.0, 15.0, 0, min_items_convenience, max_items_convenience],
             "Αντιηλιακό": [6.0, 10.0, 0, min_items_convenience, max_items_convenience],
-            "Κιτ Πρώτων Βοηθειών": [12.0, 18.0, 0, min_items_convenience, max_items_convenience],
-            "Κολλητική Ταινία": [5.0, 8.0, 0, min_items_convenience, max_items_convenience],
-            "Λάστιχα Ασφάλειας": [4.0, 7.0, 0, min_items_convenience, max_items_convenience]
+            "Κιτ Πρώτων Βοηθειών": [12.0, 20.0, 0, min_items_convenience, max_items_convenience]
         },
         "LPG Fuel Cylinders": {
             "Φιάλη Υγραερίου 5kg": [25.0, 35.0, 0, 2, 10],
-            "Φιάλη Υγραερίου 10kg": [45.0, 60.0, 0, 2, 10],
+            "Φιάλη Υγραερίου 10kg": [35.0, 60.0, 0, 2, 10],
             "Φιάλη Υγραερίου 12kg": [50.0, 65.0, 0, 2, 10],
             "Φιάλη Υγραερίου 24kg": [90.0, 120.0, 0, 1, 5]
         }
@@ -1008,17 +1004,15 @@ def get_customer_details(customer_id):
         return None
 
 def redeem_points(customer_id, points_to_redeem):
-    '''Redeem points for a customer and return euros discount'''
+    '''Redeem points for a customer - deducts points from POINT_SYSTEM'''
     with _connect() as conn:
         cursor = conn.cursor()
-        # Calculate euros from points (250 points = 1 euro)
-        euros_discount = points_to_redeem // 250.0 # floored
         
         # Update POINT_SYSTEM to subtract redeemed points
-        cursor.execute("UPDATE POINT_SYSTEM SET points = points - ? WHERE customer_id = ?",(points_to_redeem, customer_id))
+        cursor.execute("UPDATE POINT_SYSTEM SET points = points - ? WHERE customer_id = ?", (points_to_redeem, customer_id))
         conn.commit()
         
-        return euros_discount
+        return True
 
 if __name__ == '__main__':
     create_schema()

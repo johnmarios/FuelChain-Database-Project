@@ -1,11 +1,12 @@
 import customtkinter as ctk
 import dbop
-import entities
 from datetime import datetime
 import random
 from PIL import Image
 from tkinter import messagebox
 import numpy as np
+import os
+import paho.mqtt.client as mqtt
 
 APP_TITLE = "Fuel Gas Chain"
 APP_GEOMETRY = "600x500"
@@ -22,9 +23,21 @@ class AppGUI(ctk.CTk):
     ctk.set_default_color_theme("green")  # Themes: "blue" (standard), "green", "dark-blue"
     def __init__(self):
         super().__init__()
+        #self.iconbitmap("images\\logo.ico")
+
+        base_dir = os.path.dirname(os.path.abspath(__file__)) # Get the directory of the current script
+        icon_path = os.path.join(base_dir, "images", "logo.ico") # Construct the full path to the icon
+
+        self.iconbitmap(icon_path) # Set the window icon
+
         self.geometry(APP_GEOMETRY)
-        self.iconbitmap("images\\logo.ico")
         self.title(APP_TITLE)
+
+        # Initialize MQTT message list
+        self.mqtt_messages = []
+        
+        #Setup MQTT
+        self._setup_mqtt()
 
         # Initialize points redemption variables
         self.redemption_approved = False
@@ -159,6 +172,51 @@ class AppGUI(ctk.CTk):
         # show main frame initially
         self.show_frame(self.main_frame)
 
+    # setup MQTT client for admin notifications
+
+    def _setup_mqtt(self):
+        self.client = mqtt.Client()
+        self.client.on_message = self.on_mqtt_message
+        try:
+            # Σύνδεση στον δημόσιο broker
+            self.client.connect("test.mosquitto.org", 1883, 60)
+            self.client.subscribe("fuel_chain/admin_messages")
+            self.client.loop_start() 
+            print("MQTT Status: Connected to broker")
+        except Exception as e:
+            print(f"MQTT Connection Error: {e}")
+
+    def on_mqtt_message(self, client, userdata, msg):
+        try:
+            message_content = msg.payload.decode()
+            self.mqtt_messages.append(message_content)
+            
+            # Ασφαλής εμφάνιση ειδοποίησης στον Admin μέσω της after
+            self.after(0, lambda m=message_content: messagebox.showinfo("New Admin Notification", m))
+        except Exception as e:
+            print(f"Error processing MQTT message: {e}")
+
+    def show_messages_window(self):
+        '''Window to view the history of received MQTT alerts'''
+        msg_window = ctk.CTkToplevel(self)
+        msg_window.title("Mosquitto Alerts History")
+        msg_window.geometry("450x400")
+        msg_window.attributes('-topmost', True)
+
+        label = ctk.CTkLabel(msg_window, text="Stock Alerts Log", font=ctk.CTkFont(size=16, weight="bold"))
+        label.pack(pady=10)
+
+        text_area = ctk.CTkTextbox(msg_window, width=400, height=300)
+        text_area.pack(pady=10, padx=10)
+
+        if not self.mqtt_messages:
+            text_area.insert("0.0", "No alerts received yet.")
+        else:
+            for i, msg in enumerate(reversed(self.mqtt_messages)):
+                text_area.insert("end", f"[{i+1}] {msg}\n{'-'*30}\n")
+        
+        text_area.configure(state="disabled")
+
     #MAIN FRAME
     def _build_main_frame(self):
         title = ctk.CTkLabel(self.main_frame, text=APP_TITLE, font=ctk.CTkFont(size=20, weight="bold"))
@@ -167,13 +225,25 @@ class AppGUI(ctk.CTk):
         # make columns expand evenly
         self.main_frame.grid_columnconfigure(0, weight=1)
         self.main_frame.grid_columnconfigure(1, weight=1)
+        self.main_frame.grid_rowconfigure(1, weight=1)  # Make middle row expand
+
+        # Load and display image in the middle
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        image_path = os.path.join(base_dir, "images", "pngegg.png")
+        pngegg_image = Image.open(image_path)
+        pngegg_image = pngegg_image.resize((300, 300), Image.Resampling.LANCZOS) 
+        pngegg_photo = ctk.CTkImage(light_image=pngegg_image, size=(300, 300))
+        
+        image_label = ctk.CTkLabel(self.main_frame, image=pngegg_photo, text="")
+        image_label.image = pngegg_photo  # Keep a reference
+        image_label.grid(row=1, column=0, columnspan=2, pady=(20, 20))
 
         #buttons
         btn1 = ctk.CTkButton(self.main_frame, text="Administrator", command=lambda: self.show_frame(self.admin_frame))
-        btn1.grid(row=1, column=0, padx=20, pady=20, sticky="ew")
+        btn1.grid(row=2, column=0, padx=20, pady=20, sticky="ew")
 
         btn2 = ctk.CTkButton(self.main_frame, text="Enter as Customer", command=lambda: self.show_frame(self.customer_frame))
-        btn2.grid(row=1, column=1, padx=20, pady=20, sticky="ew")
+        btn2.grid(row=2, column=1, padx=20, pady=20, sticky="ew")
     
 
     #ADMIN FRAME
@@ -203,6 +273,10 @@ class AppGUI(ctk.CTk):
         btn_show_customers = ctk.CTkButton(buttons_frame, text="Shell Go+ Customers", command=lambda: self._build_shell_go_customers_frame() or self.show_frame(self.shell_go_customers_frame))
         btn_show_customers.grid(row=2, column=1, padx=10, pady=10, sticky="ew")
 
+        # mqtt view messages button for stock alerts
+        btn_view_mqtt = ctk.CTkButton(buttons_frame, text="View Stock Alerts", command=self.show_messages_window, fg_color="orange", text_color="black")
+        btn_view_mqtt.grid(row=3, column=1, padx=10, pady=10, sticky="ew")
+
         # Back button (bottom right)
         btn_back = ctk.CTkButton(self.admin_frame, text="Back", command=lambda: self.btn_back_func(self.main_frame))
         btn_back.grid(row=3, column=2, padx=20, pady=20, sticky="se")
@@ -214,14 +288,27 @@ class AppGUI(ctk.CTk):
         # make rows and columns expand evenly
         self.customer_frame.grid_rowconfigure(0, weight=1)
         self.customer_frame.grid_rowconfigure(1, weight=1)
+        self.customer_frame.grid_rowconfigure(2, weight=1)
         self.customer_frame.grid_columnconfigure(0, weight=1)
         self.customer_frame.grid_columnconfigure(1, weight=1)
 
+        # Load and display Shell pecten logo
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        logo_path = os.path.join(base_dir, "images", "Shell pecten logo on refueling station.png")
+        shell_logo = Image.open(logo_path)
+        shell_logo = shell_logo.resize((250, 250), Image.Resampling.LANCZOS)
+        shell_photo = ctk.CTkImage(light_image=shell_logo, size=(250, 250))
+        
+        logo_label = ctk.CTkLabel(self.customer_frame, image=shell_photo, text="")
+        logo_label.image = shell_photo  # Keep a reference
+        logo_label.grid(row=0, column=0, columnspan=2, pady=(20, 20))
+
         #buttons
-        btn_back = ctk.CTkButton(self.customer_frame, text="Back", command=lambda: self.btn_back_func(self.main_frame))
-        btn_back.grid(row=1, column=1, padx=20, pady=20, sticky="se")
         btn_gas = ctk.CTkButton(self.customer_frame, text="Select Station", command=lambda: self.btn_show_stations_func(self.customer_all_stations_frame))
-        btn_gas.grid(row=0, column=0, padx=20, pady=20, sticky="we")
+        btn_gas.grid(row=1, column=0, padx=20, pady=20, sticky="we")
+        
+        btn_back = ctk.CTkButton(self.customer_frame, text="Back", command=lambda: self.btn_back_func(self.main_frame))
+        btn_back.grid(row=2, column=1, padx=20, pady=20, sticky="se")
 
 
     #ALL STATIONS WHEN ADMIN ENTERS FRAME
@@ -508,7 +595,7 @@ class AppGUI(ctk.CTk):
                 btn.pack(pady=5, padx=20)
 
         # Back button
-        btn_back = ctk.CTkButton(self.fill_up_frame, text="Back", command=lambda: self.show_frame(self.non_auto_fill_options_frame))
+        btn_back = ctk.CTkButton(self.fill_up_frame, text="Back", command=lambda: (self._build_customer_station_frame(), self.show_frame(self.customer_station_frame)))
         btn_back.pack(side="bottom", anchor="e", pady=20, padx=20)
 
     def find_pump_and_tank_for_fuel(self, fuel_type, station_info):
@@ -985,9 +1072,11 @@ class AppGUI(ctk.CTk):
 
         
         # Show completion message with amount paid and discount info
-        message = f"Thank you for your purchase!\n\nAmount Paid: €{amount_of_money:.2f}"
+        message = f"Thank you for your purchase!\n\nAmount Paid: {amount_of_money:.2f}€"
+
+        # check if there's any discount 
         if self.euros_discount > 0:
-            message += f"\nPoints Discount: €{self.euros_discount:.2f}"
+            message += f"\nEuros Discount: {self.euros_discount:.2f}€"
         messagebox.showinfo("Purchase Complete", message)
         
         # Reset all customer session data
@@ -1140,7 +1229,7 @@ class AppGUI(ctk.CTk):
                 liters = amount / price
                 points_per_liter = self.selected_fuel.get('points_per_liter', 0)
                 points_to_earn = int(liters * points_per_liter)
-        elif self.non_auto_mode == 'euros':
+        elif self.non_auto_mode == 'euros' and self.amount_entry is not None:
             # Non-automated euros mode
             amount_text = self.amount_entry.get().strip()
             amount = float(amount_text) if amount_text else 0.0
@@ -1152,7 +1241,7 @@ class AppGUI(ctk.CTk):
                 liters = amount / price
                 points_per_liter = self.selected_fuel.get('points_per_liter', 0)
                 points_to_earn = int(liters * points_per_liter)
-        elif self.non_auto_mode == 'fill':
+        elif self.non_auto_mode == 'fill' and self.fill_total_cost > 0:
             # Non-automated fill mode
             amount = self.fill_total_cost
             price = self.selected_fuel.get('price_per_liter', 1.0)
@@ -1161,7 +1250,7 @@ class AppGUI(ctk.CTk):
                 liters = amount / price
                 points_per_liter = self.selected_fuel.get('points_per_liter', 0)
                 points_to_earn = int(liters * points_per_liter)
-        else:
+        elif self.non_auto_mode == 'liters' and self.qty_entry is not None:
             # Non-automated liters mode
             qty_text = self.qty_entry.get().strip()
             qty_liters = float(qty_text) if qty_text else 0.0
@@ -1195,13 +1284,13 @@ class AppGUI(ctk.CTk):
     def _show_points_redemption_dialog(self, customer_name, customer_points, points_to_earn):
         '''Show dialog for points redemption if customer has at least 250 points'''
         # Calculate available euros from points (250 points = 1 euro)
-        euros_available_for_redemption = customer_points // 250.0 # floored division
-        points_available_for_redemption = int(euros_available_for_redemption * 250)
+        euros_available_for_redemption = customer_points // 250  # integer division
+        points_available_for_redemption = euros_available_for_redemption * 250
         
         # Create a new window for redemption
         redemption_window = ctk.CTkToplevel(self)
         redemption_window.title("Points Redemption")
-        redemption_window.geometry("400x300")
+        redemption_window.geometry("450x350")
         redemption_window.transient(self) # Set to be on top of the main window
         redemption_window.grab_set()  # block interaction with main window
         
@@ -1221,7 +1310,7 @@ class AppGUI(ctk.CTk):
         earn_label.pack(pady=5)
         
         # Redemption offer
-        redemption_label = ctk.CTkLabel(redemption_window, text=f"You can redeem {euros_available_for_redemption:.2f} euros discount",font=ctk.CTkFont(size=14, weight="bold"),text_color="green")
+        redemption_label = ctk.CTkLabel(redemption_window, text=f"You can redeem {euros_available_for_redemption} euros discount",font=ctk.CTkFont(size=14, weight="bold"),text_color="green")
         redemption_label.pack(pady=15)
         
         # Question for redemption
@@ -1246,10 +1335,10 @@ class AppGUI(ctk.CTk):
             self.euros_discount = 0
             redemption_window.destroy()
         
-        yes_button = ctk.CTkButton(button_frame,ext="Yes, Redeem",command=on_yes,width=120,fg_color="green")
+        yes_button = ctk.CTkButton(button_frame, text="Yes, Redeem", command=on_yes, width=120, fg_color="green")
         yes_button.pack(side="left", padx=10)
         
-        no_button = ctk.CTkButton(button_frame,text="No, Thanks",command=on_no,width=120,fg_color="red")
+        no_button = ctk.CTkButton(button_frame, text="No, Thanks", command=on_no, width=120, fg_color="red")
         no_button.pack(side="left", padx=10)
         
         # Wait for window to close
@@ -1598,7 +1687,7 @@ class AppGUI(ctk.CTk):
         
         # Get current quantity selected
         current_quantity = self.selected_store_items.get(product_name, {}).get('quantity', 0)
-        
+
         # Check if there's enough stock for one more
         if current_quantity >= stock:
             messagebox.showwarning("Out of Stock", f"Cannot add more {product_name}. Maximum available stock: {stock}")
@@ -1618,6 +1707,11 @@ class AppGUI(ctk.CTk):
         new_stock = stock - new_quantity
         updated_product_info = f"{product_name} - {price:.2f} € (Stock: {new_stock})"
         product_label.configure(text=updated_product_info)
+
+        # --- MQTT Stock Alert Trigger ---
+        if new_stock == 0:
+            alert_text = f"STOCK ALERT: Item '{product_name}' is now OUT OF STOCK at Station {self.current_customer_station}!"
+            self.client.publish("fuel_chain/admin_messages", alert_text)
         
         # Update the quantity label with new quantity and make it visible
         qty_label.configure(text=f"({new_quantity})")
@@ -1772,7 +1866,7 @@ class AppGUI(ctk.CTk):
             total_items_count += quantity
             message += f"\n  {item_name} (x{quantity}) = €{total_item_cost:.2f}"
         
-        message += f"\n\nSubtotal (original): €{self.store_total_cost:.2f}"
+        message += f"\n\nInitial Amount to Pay : €{self.store_total_cost:.2f}" # before discount 
         message += f"\nTotal items selected: {total_items_count}"
         message += f"\n\nTotal Amount Paid: €{amount_of_money:.2f}"
         if self.euros_discount > 0:
